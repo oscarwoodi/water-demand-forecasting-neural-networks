@@ -35,15 +35,20 @@ def load_dataset(cfg, fixed_test_set=False):
     :return: DataFrames for training and test sets
     '''
     try:
-        if cfg['DATA']['DMA'] != None: 
-            if 'DWT' in cfg['TRAIN']['DECOMPOSITION']: 
-                df = pd.read_csv(f"{cfg['PATHS']['PREPROCESSED_DWT_DATA'][:-4]}_{cfg['DATA']['DMA']}_{cfg['TRAIN']['DECOMPOSITION'][-1].lower()}.csv")
-            elif 'CEEMDAN' in cfg['TRAIN']['DECOMPOSITION']: 
-                df = pd.read_csv(f"{cfg['PATHS']['PREPROCESSED_CEEMDAN_DATA'][:-4]}_{cfg['DATA']['DMA']}_{cfg['TRAIN']['DECOMPOSITION'][-1].lower()}.csv")
-            else:
-                df = pd.read_csv(cfg['PATHS']['PREPROCESSED_DATA'][:-4]+'_'+cfg['DATA']['DMA']+'.csv')
+        if 'DWT' in cfg['TRAIN']['DECOMPOSITION']: 
+            df = pd.read_csv(f"{cfg['PATHS']['PREPROCESSED_DWT_DATA'][:-4]}_{cfg['TRAIN']['DECOMPOSITION'][-1].lower()}.csv")
+        elif 'CEEMDAN' in cfg['TRAIN']['DECOMPOSITION']: 
+            df = pd.read_csv(f"{cfg['PATHS']['PREPROCESSED_CEEMDAN_DATA'][:-4]}_{cfg['TRAIN']['DECOMPOSITION'][-1].lower()}.csv")
         else: 
             df = pd.read_csv(cfg['PATHS']['PREPROCESSED_DATA'])
+        
+        if cfg['DATA']['DMA'] != None:
+            df['Consumption'] = df[cfg['DATA']['DMA']]
+            if 'DIURNAL' in cfg['DATA']['SPECIFIC_FEATS']: 
+                df['Diurnal'] = df[['diurnal_'+cfg['DATA']['DMA']]]
+            cols = [col for col in df.columns if 'dma' not in col.split('_')]
+            df = df[cols]
+
     except FileNotFoundError:
         print("No file found at " + cfg['PATHS']['PREPROCESSED_DATA'] + ". Running preprocessing of client data.")
         df = preprocess_ts(cfg, save_raw_df=True, save_prepr_df=True)
@@ -55,6 +60,7 @@ def load_dataset(cfg, fixed_test_set=False):
             train_df = df[:int(df.shape[0])]
             test_df = df[int(df.shape[0]):]
         else:
+            df = df[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']):].reset_index(drop=True)
             train_df = df[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']):int(-cfg['DATA']['TEST_DAYS'])]
             test_df = df[int(-cfg['DATA']['TEST_DAYS']):]
     else:
@@ -63,7 +69,7 @@ def load_dataset(cfg, fixed_test_set=False):
     print('Size of training set: ', train_df.shape[0])
     print('Size of test set: ', test_df.shape[0])
 
-    return train_df, test_df
+    return train_df, test_df, df
 
 
 def train_model(cfg, model_def, hparams, train_df, test_df, save_model=False, write_logs=False, save_metrics=False, dated_paths=True):
@@ -163,7 +169,7 @@ def train_all(cfg, save_models=False, write_logs=False):
     return metrics_df, forecast_df
 
 
-def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=None, save_results=False):
+def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=None, save_results=False, fixed_test_set=False, save_individual=False):
     '''
     Perform a nested cross-validation with day-forward chaining. Results are saved in CSV format.
     :param cfg: project config
@@ -177,9 +183,7 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
     n_quantiles = cfg['TRAIN']['N_QUANTILES']
     n_folds = cfg['TRAIN']['N_FOLDS']
     if dataset is None:
-        dataset = pd.read_csv(cfg['PATHS']['PREPROCESSED_DATA'])
-        dataset = dataset[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']):]
-        dataset['Date'] = pd.to_datetime(dataset['Date'])
+        _, _, dataset = load_dataset(cfg, fixed_test_set=fixed_test_set)
     if n_folds is None:
         n_folds = n_quantiles
     if metrics is None:
@@ -192,6 +196,16 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
     hparams = cfg['HPARAMS'][model_name] if hparams is None else hparams
 
     model_def = MODELS_DEFS.get(model_name, lambda: "Invalid model specified in cfg['TRAIN']['MODEL']")
+
+    # save model params
+    if save_individual: 
+        save_dir = f"{cfg['PATHS']['EXPERIMENTS']}/{cfg['DATA']['SAVE_LABEL']}/" if save_results else None
+        plot = True
+    else: 
+        save_dir = None
+        plot = False
+
+    # create results directory
 
     # Train a model n_folds times with different folds
     cur_fold = 0
@@ -210,8 +224,8 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
 
             # Train the model and evaluate performance on test set
             model.fit(train_df)
-
-            test_metrics, forecast_df = model.evaluate(train_df, test_df, save_dir=None, plot=False)
+            
+            test_metrics, forecast_df = model.evaluate(train_df, test_df, save_dir=save_dir, plot=plot)
             for metric in test_metrics:
                 if metric in metrics_df.columns:
                     metrics_df.loc[row_idx, metric] = test_metrics[metric]
@@ -225,9 +239,10 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
 
     # Save results
     if save_results:
-        file_path = cfg['PATHS']['EXPERIMENTS'] + 'cross_val_' + model_name + \
+        file_path = f"{cfg['PATHS']['EXPERIMENTS']}/{cfg['DATA']['SAVE_LABEL']}/" + 'cross_val_' + model_name + \
                     datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + '.csv'
         metrics_df.to_csv(file_path, columns=metrics_df.columns, index_label=False, index=False)
+        
 
     print(metrics_df)
 
@@ -241,8 +256,8 @@ def bayesian_hparam_optimization(cfg):
     :return: Dict of hyperparameters deemed optimal
     '''
 
-    dataset = pd.read_csv(cfg['PATHS']['PREPROCESSED_DATA'])
-    dataset['Date'] = pd.to_datetime(dataset['Date'])
+    #dataset = pd.read_csv(cfg['PATHS']['PREPROCESSED_DATA'])
+    #dataset['Date'] = pd.to_datetime(dataset['Date'])
 
     model_name = cfg['TRAIN']['MODEL'].upper()
     objective_metric = cfg['TRAIN']['HPARAM_SEARCH']['HPARAM_OBJECTIVE']
@@ -274,7 +289,8 @@ def bayesian_hparam_optimization(cfg):
     def objective(vals):
         hparams = dict(zip(hparam_names, vals))
         print('HPARAM VALUES: ', hparams)
-        scores = cross_validation(cfg, dataset=dataset, metrics=[objective_metric], model_name=model_name, hparams=hparams)[objective_metric]
+        scores, _, _ = cross_validation(cfg, dataset=None, metrics=[objective_metric], model_name=model_name, hparams=hparams, save_individual=False)
+        scores = scores[objective_metric]
         score = scores[scores.shape[0] - 2]     # Get the mean value for the error metric from the cross validation
         #test_metrics, _ = train_single(cfg, hparams=hparams, save_model=False, write_logs=False, save_metrics=False)
         #score = test_metrics['MAPE']
@@ -297,8 +313,8 @@ def bayesian_hparam_optimization(cfg):
     for i in range(len(hparam_names)):
         results[hparam_names[i]].append(search_results.x[i])
     results_df = pd.DataFrame(results)
-    results_path = cfg['PATHS']['EXPERIMENTS'] + 'hparam_search_' + model_name + \
-                   datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + '.csv'
+    results_path = cfg['PATHS']['EXPERIMENTS']+'/'+cfg['DATA']['SAVE_LABEL']+'/hparam_search_'+model_name+\
+                   datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+'.csv'
     results_df.to_csv(results_path, index_label=False, index=False)
 
 
@@ -332,7 +348,7 @@ def multi_train(cfg, experiment, save_model):
         elif experiment == 'hparam_search':
             bayesian_hparam_optimization(cfg)
         elif experiment == 'cross_validation':
-            _, forecast_df, model = cross_validation(cfg, save_results=True)
+            _, forecast_df, model = cross_validation(cfg, save_results=True, fixed_test_set=True, save_individual=True)
         else:
             raise Exception("Invalid entry in TRAIN > EXPERIMENT field of config.yml.")
     
@@ -373,8 +389,13 @@ def train_experiment(cfg=None, experiment='single_train', save_model=False, writ
     if cfg is None:
         cfg = yaml.full_load(open(os.getcwd() + "/config.yml", 'r'))
 
+    try: 
+        os.mkdir(f"{cfg['PATHS']['EXPERIMENTS']}/{cfg['DATA']['SAVE_LABEL']}")
+    except: 
+        None
+
     # Conduct the desired train experiment
-    if cfg['TRAIN']['MULTI_TRAIN']:
+    if cfg['TRAIN']['DECOMPOSITION'] != []:
         multi_train(cfg, experiment, save_model)
     elif experiment == 'train_single':
         train_single(cfg, save_model=save_model, save_metrics=True, fixed_test_set=True)
@@ -383,10 +404,15 @@ def train_experiment(cfg=None, experiment='single_train', save_model=False, writ
     elif experiment == 'hparam_search':
         bayesian_hparam_optimization(cfg)
     elif experiment == 'cross_validation':
-        cross_validation(cfg, save_results=True)
+        cross_validation(cfg, save_results=True, fixed_test_set=True, save_individual=True)
 
     else:
         raise Exception("Invalid entry in TRAIN > EXPERIMENT field of config.yml.")
+    
+    # save config to experiment folder
+    with open(f"{cfg['PATHS']['EXPERIMENTS']}/{cfg['DATA']['SAVE_LABEL']}/config.yml", 'w') as yaml_file:
+        yaml.dump(cfg, yaml_file, default_flow_style=False)
+    
     return
 
 

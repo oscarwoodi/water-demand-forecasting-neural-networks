@@ -26,7 +26,7 @@ class NNModel(ModelStrategy):
     def __init__(self, hparams, name, log_dir):
         self.univariate = hparams.get('UNIVARIATE', True)
         self.batch_size = int(hparams.get('BATCH_SIZE', 32))
-        self.epochs = int(hparams.get('EPOCHS', 50))
+        self.epochs = int(hparams.get('EPOCHS',1))
         self.patience = int(hparams.get('PATIENCE', 15))
         self.val_frac = hparams.get('VAL_FRAC', 0.15)
         self.T_x = int(hparams.get('T_X', 32))
@@ -97,6 +97,7 @@ class NNModel(ModelStrategy):
         consumption_idx = train_set.drop('Date', axis=1).columns.get_loc('Consumption')   # Index of consumption feature
         train_set, test_set, train_dates, X_train, Y_train, test_pred_dates, X_test, Y_test = self.preprocess(train_set, test_set)
         test_forecast_dates = test_set['Date']
+        train_dates = train_set[-len(train_dates):]['Date']
 
         # Make predictions for training set and obtain forecast for test set
         train_preds = self.model.predict(X_train)
@@ -138,7 +139,7 @@ class NNModel(ModelStrategy):
                                  'model': train_preds[:,consumption_idx]})
         df_test = pd.DataFrame({'ds': test_forecast_dates.tolist(), 'gt': test_set['Consumption'].tolist(),
                                  'forecast': test_forecast_df['Consumption'].tolist(), 'test_pred': test_preds[:,consumption_idx].tolist()})
-        df_forecast = pd.concat([df_train, df_test])
+        df_forecast = pd.concat([df_train, df_test]).reset_index(drop=True)
 
         # Compute evaluation metrics for the forecast
         test_metrics, forecast_df = self.evaluate_forecast(df_forecast, save_dir=save_dir, plot=plot)

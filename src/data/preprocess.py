@@ -218,22 +218,22 @@ def diurnal_flow(cfg, dataset, stat='mean'):
     # exponential mean component
     avg_df = pd.DataFrame(columns=dataset.columns, index=dataset.index)
     dmas = dataset.columns
+    df = dataset.copy()
     
     # fill with nan mean for insufficient data for exponential
-    dataset['day'] = dataset.index.weekday
-    dataset['hour'] = dataset.index.hour
+    df['day'] = df.index.weekday
+    df['hour'] = df.index.hour
     
     for dma in dmas: 
         if stat == 'mean': 
-            avg_values = dataset[:-cfg['DATA']['TEST_DAYS']].groupby(by=['day', 'hour']).mean()[dma]
+            avg_values = df[:-cfg['DATA']['TEST_DAYS']].groupby(by=['day', 'hour']).mean()[dma]
         elif stat == 'median': 
-            avg_values = dataset[:-cfg['DATA']['TEST_DAYS']].groupby(by=['day', 'hour']).median()[dma]
+            avg_values = df[:-cfg['DATA']['TEST_DAYS']].groupby(by=['day', 'hour']).median()[dma]
 
-        for idx, row in dataset.iterrows(): 
+        for idx, row in df.iterrows(): 
             avg_df.loc[idx, dma] = avg_values.loc[row.day, row.hour]
 
-    dataset = dataset.drop(columns=['hour', 'day'])  
-    avg_df = avg_df.rename(columns={dma : dma+'_diurnal' for dma in dataset.columns})
+    avg_df = avg_df.rename(columns={dma : 'diurnal_'+dma for dma in dmas})
 
     # shift forward to give next diurnal value
     avg_df = avg_df.shift(-1).fillna(0)
@@ -350,7 +350,7 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
             for set in preprocessed_transforms.keys(): 
                 save_path_ceemdan = f"{cfg['PATHS']['PREPROCESSED_CEEMDAN_DATA'][:-4]}_ceemdan_{set}.csv" if out_path is None else out_path
                 preprocessed_transforms[set].to_csv(save_path_ceemdan, sep=',', header=True)
-
+    """ 
     # splits processed data into individual dmas
     if save_split_prepr_df:
         for dma in dmas: 
@@ -373,7 +373,7 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
                 for set in preprocessed_transforms.keys(): 
                     save_path_ceemdan = f"{cfg['PATHS']['PREPROCESSED_CEEMDAN_DATA'][:-4]}_{dma}_ceemdan_{set}.csv" if out_path is None else out_path
                     preprocessed_transforms[set][cols].rename(columns={dma: 'Consumption'}).to_csv(save_path_ceemdan, sep=',', header=True)
-
+    """
     print("Done. Runtime = ", ((datetime.today() - run_start).seconds / 60), " min")
     return preprocessed_df
 
