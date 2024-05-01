@@ -28,7 +28,7 @@ MODELS_DEFS = {
 }
 
 
-def load_dataset(cfg, fixed_test_set=False):
+def load_dataset(cfg, fixed_test_set=True):
     '''
     Load preprocessed dataset and return training and test sets.
     :param cfg: Project config
@@ -42,10 +42,10 @@ def load_dataset(cfg, fixed_test_set=False):
         else: 
             df = pd.read_csv(cfg['PATHS']['PREPROCESSED_DATA'])
         
-        if cfg['DATA']['DMA'] != None:
-            df['Consumption'] = df[cfg['DATA']['DMA']]
+        if cfg['DATA']['CURRENT_DMA'] != None:
+            df['Consumption'] = df[cfg['DATA']['CURRENT_DMA']]
             if 'DIURNAL' in cfg['DATA']['SPECIFIC_FEATS']: 
-                df['Diurnal'] = df[['diurnal_'+cfg['DATA']['DMA']]]
+                df['Diurnal'] = df[['diurnal_'+cfg['DATA']['CURRENT_DMA']]]
             cols = [col for col in df.columns if 'dma' not in col.split('_')]
             df = df[cols]
 
@@ -60,7 +60,7 @@ def load_dataset(cfg, fixed_test_set=False):
             train_df = df[:int(df.shape[0])]
             test_df = df[int(df.shape[0]):]
         else:
-            df = df[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']):].reset_index(drop=True)
+            df = df[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']-cfg['DATA']['END_TRIM']):int(-cfg['DATA']['END_TRIM'])].reset_index(drop=True)
             train_df = df[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']):int(-cfg['DATA']['TEST_DAYS'])]
             test_df = df[int(-cfg['DATA']['TEST_DAYS']):]
     else:
@@ -169,7 +169,7 @@ def train_all(cfg, save_models=False, write_logs=False):
     return metrics_df, forecast_df
 
 
-def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=None, save_results=False, fixed_test_set=False, save_individual=False):
+def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=None, save_results=False, fixed_test_set=True, save_individual=False):
     '''
     Perform a nested cross-validation with day-forward chaining. Results are saved in CSV format.
     :param cfg: project config
@@ -289,7 +289,7 @@ def bayesian_hparam_optimization(cfg):
     def objective(vals):
         hparams = dict(zip(hparam_names, vals))
         print('HPARAM VALUES: ', hparams)
-        scores, _, _ = cross_validation(cfg, dataset=None, metrics=[objective_metric], model_name=model_name, hparams=hparams, save_individual=False)
+        scores, _, _ = cross_validation(cfg, dataset=None, metrics=[objective_metric], model_name=model_name, hparams=hparams, save_results=False, save_individual=False)
         scores = scores[objective_metric]
         score = scores[scores.shape[0] - 2]     # Get the mean value for the error metric from the cross validation
         #test_metrics, _ = train_single(cfg, hparams=hparams, save_model=False, write_logs=False, save_metrics=False)
@@ -313,7 +313,7 @@ def bayesian_hparam_optimization(cfg):
     for i in range(len(hparam_names)):
         results[hparam_names[i]].append(search_results.x[i])
     results_df = pd.DataFrame(results)
-    results_path = cfg['PATHS']['EXPERIMENTS']+'/'+cfg['DATA']['SAVE_LABEL']+'/hparam_search_'+model_name+\
+    results_path = cfg['PATHS']['EXPERIMENTS']+'/'+cfg['DATA']['SAVE_LABEL']+'/'+cfg['DATA']['CURRENT_DMA']+'_hparam_search_'+model_name+\
                    datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+'.csv'
     results_df.to_csv(results_path, index_label=False, index=False)
 
@@ -410,7 +410,7 @@ def train_experiment(cfg=None, experiment='single_train', save_model=False, writ
         raise Exception("Invalid entry in TRAIN > EXPERIMENT field of config.yml.")
     
     # save config to experiment folder
-    with open(f"{cfg['PATHS']['EXPERIMENTS']}/{cfg['DATA']['SAVE_LABEL']}/config.yml", 'w') as yaml_file:
+    with open(f"{cfg['PATHS']['EXPERIMENTS']}/{cfg['DATA']['SAVE_LABEL']}/{cfg['DATA']['CURRENT_DMA']}_{experiment}_config.yml", 'w') as yaml_file:
         yaml.dump(cfg, yaml_file, default_flow_style=False)
     
     return
@@ -419,6 +419,13 @@ def train_experiment(cfg=None, experiment='single_train', save_model=False, writ
 if __name__ == '__main__':
     cfg = yaml.full_load(open("./config.yml", 'r'))
     start = time.time()
-    train_experiment(cfg=cfg, experiment=cfg['TRAIN']['EXPERIMENT'], save_model=True, write_logs=True)
+    # run for each dma
+    if cfg['DATA']['DMAS'] != None: 
+        for dma in cfg['DATA']['DMAS']: 
+            print('Running for DMA '+dma)
+            cfg['DATA']['CURRENT_DMA'] = dma
+            train_experiment(cfg=cfg, experiment=cfg['TRAIN']['EXPERIMENT'], save_model=True, write_logs=True)
+    else: 
+        train_experiment(cfg=cfg, experiment=cfg['TRAIN']['EXPERIMENT'], save_model=True, write_logs=True)
     end = time.time() - start
     print(end)

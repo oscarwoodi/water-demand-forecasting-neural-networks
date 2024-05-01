@@ -26,7 +26,7 @@ class NNModel(ModelStrategy):
     def __init__(self, hparams, name, log_dir):
         self.univariate = hparams.get('UNIVARIATE', True)
         self.batch_size = int(hparams.get('BATCH_SIZE', 32))
-        self.epochs = int(hparams.get('EPOCHS',1))
+        self.epochs = int(hparams.get('EPOCHS',120))
         self.patience = int(hparams.get('PATIENCE', 15))
         self.val_frac = hparams.get('VAL_FRAC', 0.15)
         self.T_x = int(hparams.get('T_X', 32))

@@ -44,31 +44,31 @@ DATES:
 DATA:
   FREQUENCY: ['H']
   PREPROCESS: ['IMPUTE', 'CEEMDAN', 'DWT', 'ANOMOLY_REMOVAL']  # One of ['IMPUTE', 'CEEMDAN', 'DWT', 'ANOMOLY_REMOVAL']
-  CEEMDAN_DECOMPOSITIONS: 3 # None
+  CEEMDAN_DECOMPOSITIONS: 1 # None
   DWT_DECOMPOSITIONS: 1 # None
   WEATHER_FEATS: []  # One of ['AIR_TEMP', 'AIR_HUMIDITY', WIND_SPEED', RAIN_DEPTH']
   TIME_FEATS: ['WEEKEND', 'HOUR', 'HOLIDAY']  # One of ['WEEKEND', 'HOUR', 'HOLIDAY']
   SPECIFIC_FEATS: ['DIURNAL', 'K_MEANS']  # One of ['DIURNAL', 'K_MEANS']
   TEST_FRAC: 0.25
   TEST_DAYS: 672
-  TRAIN_DAYS: 672
+  TRAIN_DAYS: 168
   START_TRIM: 11000
-  END_TRIM: 0
-  DMA: 'dma_a'
+  END_TRIM: 168
+  DMAS: ['dma_g', 'dma_i']
   MISSING_RANGES: []
-  SAVE_LABEL: Experiment1_ANN
+  SAVE_LABEL: ANN_BASIC_VIRTUAL
 
 # Training experiments
 TRAIN:
   MODEL: 'ann'                      # One of ['prophet', 'lstm', 'gru', '1dcnn', 'arima', 'sarimax', 'random_forest', 'linear_regression']
   DECOMPOSITION: []                 # One of ['CEEMDAN', 'DWT'] 
   EXPERIMENT: 'hparam_search'        # One of ['train_single', 'train_all', 'hparam_search', 'cross_validation']   
-  N_QUANTILES: 7
-  N_FOLDS: 1
+  N_QUANTILES: 34
+  N_FOLDS: 7
   HPARAM_SEARCH:
-    N_EVALS: 10
+    N_EVALS: 50
     HPARAM_OBJECTIVE: 'MSE'             # One of ['MAPE', 'MAE', 'MSE', 'RMSE']
-    LAST_FOLDS: 1
+    LAST_FOLDS: 4
   INTERPRETABILITY: true
 
 # Forecasting
@@ -107,14 +107,14 @@ HPARAMS:
     BATCH_SIZE: 48
     EPOCHS: 1
     PATIENCE: 15
-    VAL_FRAC: 0.25
+    VAL_FRAC: 0.15
     LR: 0.00001
     LOSS: 'mse'
     DROPOUT: 0.25
     FC0_UNITS: 128
     FC1_UNITS: 128
     FC2_UNITS: 128
-    PREPROCESS: ['windowed']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
+    PREPROCESS: ['virtual']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
   LSTM:
     UNIVARIATE: true
     T_X: 168
@@ -186,10 +186,10 @@ HPARAM_SEARCH:
   ANN:
     T_X:
       TYPE: 'set'
-      RANGE: [24, 168, 672]
+      RANGE: [168]
     BATCH_SIZE:
       TYPE: 'set'
-      RANGE: [16, 32]
+      RANGE: [16, 24, 48]
     PATIENCE:
       TYPE: 'int_uniform'
       RANGE: [5, 15]
@@ -204,13 +204,13 @@ HPARAM_SEARCH:
       RANGE: [0.0, 0.5]
     FC0_UNITS:
       TYPE: 'set'
-      RANGE: [32, 64, 96, 160, 256]
+      RANGE: [32, 64, 96, 160]
     FC1_UNITS:
       TYPE: 'set'
-      RANGE: [32, 64, 96, 160, 256]
+      RANGE: [32, 64, 96, 160]
     FC2_UNITS:
       TYPE: 'set'
-      RANGE: [32, 64, 96, 160, 256]
+      RANGE: [32, 64, 96, 160]
   LSTM:
     T_X:
       TYPE: 'int_uniform'
