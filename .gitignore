@@ -1,7 +1,6 @@
 data/preprocessed/**/*.csv
 data/raw/*
 data/raw/quarterly/*
-data/raw/intermediate/*
 data/serializations/*
 img/data_visualizations/*
 img/forecast_visualizations/*
