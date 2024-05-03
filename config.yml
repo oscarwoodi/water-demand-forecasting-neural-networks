@@ -44,7 +44,7 @@ DATES:
 DATA:
   FREQUENCY: ['H']
   PREPROCESS: ['IMPUTE', 'CEEMDAN', 'DWT', 'ANOMOLY_REMOVAL']  # One of ['IMPUTE', 'CEEMDAN', 'DWT', 'ANOMOLY_REMOVAL']
-  CEEMDAN_DECOMPOSITIONS: 1 # None
+  CEEMDAN_DECOMPOSITIONS: 5 # None
   DWT_DECOMPOSITIONS: 1 # None
   WEATHER_FEATS: []  # One of ['AIR_TEMP', 'AIR_HUMIDITY', WIND_SPEED', RAIN_DEPTH']
   TIME_FEATS: ['WEEKEND', 'HOUR', 'HOLIDAY']  # One of ['WEEKEND', 'HOUR', 'HOLIDAY']
@@ -54,19 +54,19 @@ DATA:
   TRAIN_DAYS: 168
   START_TRIM: 11000
   END_TRIM: 168
-  DMAS: ['dma_g', 'dma_i']
+  DMAS: ['dma_b']
   MISSING_RANGES: []
-  SAVE_LABEL: ANN_BASIC_VIRTUAL
+  SAVE_LABEL: ANN_DWT
 
 # Training experiments
 TRAIN:
   MODEL: 'ann'                      # One of ['prophet', 'lstm', 'gru', '1dcnn', 'arima', 'sarimax', 'random_forest', 'linear_regression']
-  DECOMPOSITION: []                 # One of ['CEEMDAN', 'DWT'] 
+  DECOMPOSITION: ['DWT']                 # One of ['CEEMDAN', 'DWT'] 
   EXPERIMENT: 'hparam_search'        # One of ['train_single', 'train_all', 'hparam_search', 'cross_validation']   
   N_QUANTILES: 34
   N_FOLDS: 7
   HPARAM_SEARCH:
-    N_EVALS: 50
+    N_EVALS: 30
     HPARAM_OBJECTIVE: 'MSE'             # One of ['MAPE', 'MAE', 'MSE', 'RMSE']
     LAST_FOLDS: 4
   INTERPRETABILITY: true
@@ -105,16 +105,16 @@ HPARAMS:
     UNIVARIATE: true
     T_X: 168
     BATCH_SIZE: 48
-    EPOCHS: 1
+    EPOCHS: 120
     PATIENCE: 15
     VAL_FRAC: 0.15
-    LR: 0.00001
+    LR: 0.0001
     LOSS: 'mse'
-    DROPOUT: 0.25
-    FC0_UNITS: 128
-    FC1_UNITS: 128
-    FC2_UNITS: 128
-    PREPROCESS: ['virtual']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
+    DROPOUT: 0.3
+    FC0_UNITS: 160
+    FC1_UNITS: 160
+    FC2_UNITS: 64
+    PREPROCESS: ['fragments']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
   LSTM:
     UNIVARIATE: true
     T_X: 168
@@ -204,13 +204,16 @@ HPARAM_SEARCH:
       RANGE: [0.0, 0.5]
     FC0_UNITS:
       TYPE: 'set'
-      RANGE: [32, 64, 96, 160]
+      RANGE: [96, 160]
     FC1_UNITS:
       TYPE: 'set'
-      RANGE: [32, 64, 96, 160]
+      RANGE: [64, 96, 160]
     FC2_UNITS:
       TYPE: 'set'
       RANGE: [32, 64, 96, 160]
+    PREPROCESS: 
+      TYPE: 'set'
+      RANGE: ['fragments'] 
   LSTM:
     T_X:
       TYPE: 'int_uniform'

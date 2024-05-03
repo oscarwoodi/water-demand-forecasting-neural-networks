@@ -199,7 +199,7 @@ def ceemdan_transform(dataset, dmas, sets=3):
     # apply ceemdan to each column
     for dma in dmas: 
         print(f"Applying CEEMDAN transform for {dma}...")
-        ceemdan = CEEMDAN()
+        ceemdan = CEEMDAN(epsilon=0.2)
         transformed = ceemdan(dataset[dma].values, max_imf=sets).T
 
         # save each transform 

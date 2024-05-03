@@ -289,7 +289,7 @@ def bayesian_hparam_optimization(cfg):
     def objective(vals):
         hparams = dict(zip(hparam_names, vals))
         print('HPARAM VALUES: ', hparams)
-        scores, _, _ = cross_validation(cfg, dataset=None, metrics=[objective_metric], model_name=model_name, hparams=hparams, save_results=False, save_individual=False)
+        scores, _, _ = cross_validation(cfg, metrics=[objective_metric], model_name=model_name, hparams=hparams, save_results=False, save_individual=False)
         scores = scores[objective_metric]
         score = scores[scores.shape[0] - 2]     # Get the mean value for the error metric from the cross validation
         #test_metrics, _ = train_single(cfg, hparams=hparams, save_model=False, write_logs=False, save_metrics=False)
@@ -313,8 +313,13 @@ def bayesian_hparam_optimization(cfg):
     for i in range(len(hparam_names)):
         results[hparam_names[i]].append(search_results.x[i])
     results_df = pd.DataFrame(results)
-    results_path = cfg['PATHS']['EXPERIMENTS']+'/'+cfg['DATA']['SAVE_LABEL']+'/'+cfg['DATA']['CURRENT_DMA']+'_hparam_search_'+model_name+\
-                   datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+'.csv'
+    if cfg['TRAIN']['DECOMPOSITION'] == []:
+        results_path = cfg['PATHS']['EXPERIMENTS']+'/'+cfg['DATA']['SAVE_LABEL']+'/'+cfg['DATA']['CURRENT_DMA']+'_hparam_search_'+model_name+\
+                    datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+'.csv'
+    else: 
+        results_path = cfg['PATHS']['EXPERIMENTS']+'/'+cfg['DATA']['SAVE_LABEL']+'/'+cfg['DATA']['CURRENT_DMA']+'_'+cfg['TRAIN']['DECOMPOSITION'][-1]+'_hparam_search_'+model_name+\
+                    datetime.datetime.now().strftime("%Y%m%d-%H%M%S")+'.csv'
+        
     results_df.to_csv(results_path, index_label=False, index=False)
 
 
@@ -351,7 +356,7 @@ def multi_train(cfg, experiment, save_model):
             _, forecast_df, model = cross_validation(cfg, save_results=True, fixed_test_set=True, save_individual=True)
         else:
             raise Exception("Invalid entry in TRAIN > EXPERIMENT field of config.yml.")
-    
+
         # update series to fit model for
         if 'CEEMDAN' in cfg['TRAIN']['DECOMPOSITION']: 
             # alteration to change dataset used to residuals of dwt
@@ -361,17 +366,18 @@ def multi_train(cfg, experiment, save_model):
             cfg['TRAIN']['DECOMPOSITION'].append('DWT_RESIDUAL')
 
         # concatenate results
-        if i == 0: 
-            total_forecast_df = forecast_df
-        else: 
-            total_forecast_df = total_forecast_df + forecast_df
+        if experiment != 'hparam_search':
+            if i == 0: 
+                total_forecast_df = forecast_df
+            else: 
+                total_forecast_df = total_forecast_df + forecast_df
 
-    # get results and save
-    save_dir = cfg['PATHS']['EXPERIMENTS']
-    model.name += '_combined'
-    test_metrics, forecast_df = model.evaluate_forecast(total_forecast_df, save_dir=save_dir, plot=True)
-    print('\n\nPrinting combined model residuals...')
-    print('Test forecast metrics: ', test_metrics)
+            # get results and save
+            save_dir = cfg['PATHS']['EXPERIMENTS']
+            model.name += '_combined'
+            test_metrics, forecast_df = model.evaluate_forecast(total_forecast_df, save_dir=save_dir, plot=True)
+            print('\n\nPrinting combined model residuals...')
+            print('Test forecast metrics: ', test_metrics)
 
     return
 

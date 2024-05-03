@@ -1,4 +1,6 @@
-data/preprocessed/**/*.csv
+data/preprocessed/all/*
+data/preprocessed/ceemdan/*
+data/preprocessed/dwt/*
 data/raw/*
 data/raw/quarterly/*
 data/serializations/*

@@ -28,8 +28,8 @@ class NNModel(ModelStrategy):
         self.batch_size = int(hparams.get('BATCH_SIZE', 32))
         self.epochs = int(hparams.get('EPOCHS',120))
         self.patience = int(hparams.get('PATIENCE', 15))
-        self.val_frac = hparams.get('VAL_FRAC', 0.15)
-        self.T_x = int(hparams.get('T_X', 32))
+        self.val_frac = hparams.get('VAL_FRAC', 0.25)
+        self.T_x = int(hparams.get('T_X', 168))
         self.metrics = [MeanSquaredError(name='mse'), RootMeanSquaredError(name='rmse'), MeanAbsoluteError(name='mae'),
                         MeanAbsolutePercentageError(name='mape')]
         self.standard_scaler = StandardScaler()
@@ -104,7 +104,7 @@ class NNModel(ModelStrategy):
         test_preds = self.model.predict(X_test)
 
         if 'windowed' in self.preprocesses: 
-            forecast_data = X_train[-1]
+            forecast_data = X_test[0]
         elif 'fragments' in self.preprocesses: 
             forecast_data = train_set[len(X_train):]
 
@@ -454,11 +454,7 @@ class ANNModel(NNModel):
                 X = Dropout(self.dropout)(X)
         Y = Dense(1, activation='linear', name='output')(X)
         model = Model(inputs=X_input, outputs=Y, name=self.name)
-        optimizer = Adam(tf.keras.optimizers.schedules.InverseTimeDecay(
-                    initial_learning_rate=self.lr,
-                    decay_steps=45*1000,
-                    decay_rate=1,
-                    staircase=False),
+        optimizer = Adam(learning_rate=self.lr,
                     clipvalue=0.5,
                     clipnorm=1)
         model.compile(loss=self.loss, optimizer=optimizer, metrics=self.metrics)
@@ -497,11 +493,7 @@ class LSTMModel(NNModel):
                 X = Dropout(self.dropout)(X)
         Y = Dense(1, activation='linear', name='output')(X)
         model = Model(inputs=X_input, outputs=Y, name=self.name)
-        optimizer = Adam(tf.keras.optimizers.schedules.InverseTimeDecay(
-                    initial_learning_rate=self.lr,
-                    decay_steps=45*1000,
-                    decay_rate=1,
-                    staircase=False),
+        optimizer = Adam(learning_rate=self.lr,
                     clipvalue=0.5,
                     clipnorm=1)
         model.compile(loss=self.loss, optimizer=optimizer, metrics=self.metrics)
