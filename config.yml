@@ -50,19 +50,20 @@ DATA:
   TIME_FEATS: ['WEEKEND', 'HOUR', 'HOLIDAY']  # One of ['WEEKEND', 'HOUR', 'HOLIDAY']
   SPECIFIC_FEATS: ['DIURNAL', 'K_MEANS']  # One of ['DIURNAL', 'K_MEANS']
   TEST_FRAC: 0.25
-  TEST_DAYS: 672
-  TRAIN_DAYS: 168
+  TEST_DAYS: 168
+  TRAIN_DAYS: 672
   START_TRIM: 11000
   END_TRIM: 168
-  DMAS: ['dma_b']
+  DMAS: ['dma_a', 'dma_b', 'dma_g', 'dma_i']
   MISSING_RANGES: []
-  SAVE_LABEL: ANN_DWT
+  SAVE_LABEL: ANN_CEEMDAN_FRAGMENTS
 
 # Training experiments
 TRAIN:
   MODEL: 'ann'                      # One of ['prophet', 'lstm', 'gru', '1dcnn', 'arima', 'sarimax', 'random_forest', 'linear_regression']
-  DECOMPOSITION: ['DWT']                 # One of ['CEEMDAN', 'DWT'] 
-  EXPERIMENT: 'hparam_search'        # One of ['train_single', 'train_all', 'hparam_search', 'cross_validation']   
+  DECOMPOSITION: ['CEEMDAN', 'CEEMDAN_2']                 # One of ['CEEMDAN', 'DWT'] 
+  EXPERIMENT: 'multi_cross_validation'        # One of ['train_single', 'train_all', 'hparam_search', 'cross_validation', 'multi_cross_validation']
+  VALIDATIONS: 10
   N_QUANTILES: 34
   N_FOLDS: 7
   HPARAM_SEARCH:
@@ -104,16 +105,16 @@ HPARAMS:
   ANN: 
     UNIVARIATE: true
     T_X: 168
-    BATCH_SIZE: 48
+    BATCH_SIZE: 24
     EPOCHS: 120
-    PATIENCE: 15
+    PATIENCE: 14
     VAL_FRAC: 0.15
     LR: 0.0001
     LOSS: 'mse'
-    DROPOUT: 0.3
+    DROPOUT: 0.25
     FC0_UNITS: 160
-    FC1_UNITS: 160
-    FC2_UNITS: 64
+    FC1_UNITS: 96
+    FC2_UNITS: 32
     PREPROCESS: ['fragments']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
   LSTM:
     UNIVARIATE: true
@@ -125,7 +126,7 @@ HPARAMS:
     LR: 0.0001
     LOSS: 'mse'
     UNITS: 128
-    DROPOUT: 0.25
+    DROPOUT: 0.2
     FC0_UNITS: 128
     FC1_UNITS: 128
     PREPROCESS: ['fragments']
@@ -204,7 +205,7 @@ HPARAM_SEARCH:
       RANGE: [0.0, 0.5]
     FC0_UNITS:
       TYPE: 'set'
-      RANGE: [96, 160]
+      RANGE: [64, 96, 160]
     FC1_UNITS:
       TYPE: 'set'
       RANGE: [64, 96, 160]

@@ -98,6 +98,62 @@ def plot_model_evaluation(forecast_df, model_name, metrics, save_dir=None, figsi
     return
 
 
+def plot_multi_model_evaluation(forecast_df, model_name, metrics, save_dir=None, figsize=(20,13), save_fig=False, train_date=''):
+    '''
+    Plot model's predictions on training and test sets, along with key performance metrics.
+    :param forecast_df: DataFrame consisting of predicted and ground truth consumption values
+    :param model_name: model identifier
+    :param metrics: key performance metrics
+    :param figsize: size of matplotlib figure
+    :param train_date: string representing date model was trained
+    '''
+
+    fig = plt.figure(figsize=figsize)
+    fig.suptitle(model_name + ' Forecast', fontsize=20)
+    ax1 = fig.add_subplot(2, 2, 1)
+    ax2 = fig.add_subplot(2, 2, 2)
+    ax3 = fig.add_subplot(2, 2, 3)
+    ax4 = fig.add_subplot(2, 2, 4)
+
+    # Split indivudiual validations
+    run_dict = {forecast_df.columns}
+
+    # Plot training performance
+    forecast_df[pd.notnull(forecast_df["model"])][["gt", "model"]].plot(color=["black", "green"], title="Training Set Predictions",
+                                                                        grid=True, ax=ax1)
+    ax1.set(xlabel=None)
+
+    # Plot test performance
+    if "test_pred" in forecast_df.columns:
+        forecast_df[pd.isnull(forecast_df["model"])][["gt", "forecast", "test_pred"]].plot(color=["black", "red", "yellow"],
+                                                                              title="Test Set Forecast", grid=True, ax=ax2)
+    else:
+        forecast_df[pd.isnull(forecast_df["model"])][["gt", "forecast"]].plot(color=["black", "red"],
+                                                                              title="Test Set Forecast", grid=True, ax=ax2)
+    ax2.fill_between(x=forecast_df.index, y1=forecast_df['pred_int_low'], y2=forecast_df['pred_int_up'], color='b', alpha=0.2)
+    ax2.fill_between(x=forecast_df.index, y1=forecast_df['conf_int_low'], y2=forecast_df['conf_int_up'], color='b', alpha=0.3)
+    ax2.set(xlabel=None)
+
+    # Plot residuals
+    forecast_df[["residuals", "error"]].plot(ax=ax3, color=["green", "red"], title="Residuals", grid=True)
+    ax3.set(xlabel=None)
+
+    # Plot residuals distribution
+    forecast_df[["residuals", "error"]].plot(ax=ax4, color=["green", "red"], kind='kde',
+                                     title="Residuals Distribution", grid=True)
+    ax4.set(ylabel=None)
+    print("Training --> Residuals mean:", np.round(metrics['residuals_mean']), " | std:", np.round(metrics['residuals_std']))
+    print("Test --> Error mean:", np.round(metrics['error_mean']), " | std:", np.round(metrics['error_std']),
+          " | mae:", np.round(metrics['MAE']), " | mape:", np.round(metrics['MAPE'] * 100), "%  | mse:", np.round(metrics['MSE']),
+          " | rmse:", np.round(metrics['RMSE']))
+
+    if save_fig:
+        save_dir = cfg['PATHS']['FORECAST_VISUALIZATIONS'] if save_dir is None else save_dir
+        plt.savefig(save_dir + '/' + model_name + '_eval_' +
+                    train_date + '.png')
+    return
+
+
 def correlation_matrix(dataset, save_fig=False):
     '''
     Produces a correlation matrix for a dataset

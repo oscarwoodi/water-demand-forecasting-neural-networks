@@ -228,6 +228,9 @@ class NNModel(ModelStrategy):
             data_set = self.virtual_points(pd.concat([train_set, test_set]), n=self.n)
             train_set = data_set[:split_idx]
             test_set = data_set[split_idx:]
+            T_x = self.T_x * 2
+        else: 
+            T_x = self.T_x
 
         # adding clusters to demand
         if 'cluster' in self.preprocesses: 
@@ -247,28 +250,26 @@ class NNModel(ModelStrategy):
             train_dates, X_train, Y_train = self.fragment(train_set)
             test_pred_dates, X_test, Y_test = self.fragment(pd.concat([train_set[len(Y_train):], test_set]))
         elif 'windowed' in self.preprocesses:
-            train_dates, X_train, Y_train = self.make_windowed_dataset(train_set)
-            test_pred_dates, X_test, Y_test = self.make_windowed_dataset(pd.concat([train_set[-self.T_x:], test_set]))
-            
+            train_dates, X_train, Y_train = self.make_windowed_dataset(train_set, T_x=T_x)
+            test_pred_dates, X_test, Y_test = self.make_windowed_dataset(pd.concat([train_set[-T_x:], test_set]), T_x=T_x)
+
         return train_set, test_set, train_dates, X_train, Y_train, test_pred_dates, X_test, Y_test
 
 
-    def make_windowed_dataset(self, dataset):
+    def make_windowed_dataset(self, dataset, T_x):
         '''
         Make time series datasets. Each example is a window of the last T_x data points and label is data point 1 day
         into the future.
         :param dataset: Pandas DataFrame indexed by date
         :return: A windowed time series dataset of shape (# rows, T_x, # features)
         '''
-        if 'virtual' in self.preprocesses: 
-            self.T_x = self.T_x * 2
 
-        dates = dataset['Date'][self.T_x:].tolist()
+        dates = dataset['Date'][T_x:].tolist()
         unindexed_dataset = dataset.loc[:, dataset.columns != 'Date']
-        X = np.zeros((unindexed_dataset.shape[0] - self.T_x, self.T_x, unindexed_dataset.shape[1]))
-        Y = unindexed_dataset['Consumption'][self.T_x:].to_numpy()
+        X = np.zeros((unindexed_dataset.shape[0] - T_x, T_x, unindexed_dataset.shape[1]))
+        Y = unindexed_dataset['Consumption'][T_x:].to_numpy()
         for i in range(X.shape[0]):
-            X[i] = unindexed_dataset[i:i+self.T_x].to_numpy()
+            X[i] = unindexed_dataset[i:i+T_x].to_numpy()
         return dates, X, Y
     
 
@@ -324,18 +325,20 @@ class NNModel(ModelStrategy):
         :param inverse: set to True to reverse virtual point addittion
         :return: dataset with virtual data points via linear interpolation
         '''
-        if not inverse: 
-            dataset = dataset.set_index('Date')
-            frequency = str(60/(n+1)) + 'min'
-            dataset = dataset.asfreq(freq=frequency).interpolate()
-            dataset = dataset.reset_index()
-        else: 
-            if isinstance(dataset, np.ndarray) or isinstance(dataset, list):
-                dataset = dataset[0::(n+1)]
-            else: 
-                dataset = dataset.loc[dataset.reset_index().index % (n+1) == 0]
+        df = dataset.copy()
 
-        return dataset
+        if not inverse: 
+            df = df.set_index('Date')
+            frequency = str(60/(n+1)) + 'min'
+            df = df.asfreq(freq=frequency).interpolate()
+            df = df.reset_index()
+        else: 
+            if isinstance(df, np.ndarray) or isinstance(df, list):
+                df = df[0::(n+1)]
+            else: 
+                df = df.loc[df.reset_index().index % (n+1) == 0]
+
+        return df
     
 
     def fragment(self, dataset, n_steps_out=1, n_steps_present=16, n_steps_recent=16, n_steps_distant=16):

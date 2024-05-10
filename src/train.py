@@ -179,11 +179,11 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
     :param save_results: Flag indicating whether to save results
     :return DataFrame of metrics
     '''
-
     n_quantiles = cfg['TRAIN']['N_QUANTILES']
     n_folds = cfg['TRAIN']['N_FOLDS']
     if dataset is None:
         _, _, dataset = load_dataset(cfg, fixed_test_set=fixed_test_set)
+        print(dataset)
     if n_folds is None:
         n_folds = n_quantiles
     if metrics is None:
@@ -191,6 +191,7 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
     n_rows = n_quantiles if n_folds is None else n_folds
     metrics_df = pd.DataFrame(np.zeros((n_rows + 2, len(metrics) + 1)), columns=['Fold'] + metrics)
     metrics_df['Fold'] = list(range(n_quantiles - n_folds + 1, n_quantiles + 1)) + ['mean', 'std']
+    forecast_df = pd.DataFrame()
     ts_cv = TimeSeriesSplit(n_splits=n_quantiles)
     model_name = cfg['TRAIN']['MODEL'].upper() if model_name is None else model_name
     hparams = cfg['HPARAMS'][model_name] if hparams is None else hparams
@@ -225,10 +226,14 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
             # Train the model and evaluate performance on test set
             model.fit(train_df)
             
-            test_metrics, forecast_df = model.evaluate(train_df, test_df, save_dir=save_dir, plot=plot)
+            test_metrics, test_forecast_df = model.evaluate(train_df, test_df, save_dir=save_dir, plot=plot)
             for metric in test_metrics:
                 if metric in metrics_df.columns:
                     metrics_df.loc[row_idx, metric] = test_metrics[metric]
+            forecast_df = pd.concat([
+                forecast_df, 
+                test_forecast_df.rename(columns={col: col+'_fold_'+str(row_idx) for col in test_forecast_df.columns})
+                ], axis=1)
             row_idx += 1
         cur_fold += 1
 
@@ -242,9 +247,6 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
         file_path = f"{cfg['PATHS']['EXPERIMENTS']}/{cfg['DATA']['SAVE_LABEL']}/" + 'cross_val_' + model_name + \
                     datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + '.csv'
         metrics_df.to_csv(file_path, columns=metrics_df.columns, index_label=False, index=False)
-        
-
-    print(metrics_df)
 
     return metrics_df, forecast_df, model
 
@@ -326,7 +328,53 @@ def bayesian_hparam_optimization(cfg):
     return search_results
 
 
-def multi_train(cfg, experiment, save_model):
+def multi_cross_validation(cfg, save_results=True, fixed_test_set=True, save_individual=False, dataset=None, metrics=None, model_name=None, hparams=None):
+    '''
+    Trains and cross-validates model multiple times to get distribution of results. 
+    :param cfg: project config
+    :param save_results: Flag indicating whether to save results
+    :param save_individual: Flag indicating whether to save each individual fold result and plot
+    :return DataFrame of metrics and predictions from each run
+    '''
+    no_validations = cfg['TRAIN']['VALIDATIONS']
+    model_name = cfg['TRAIN']['MODEL'].upper() if model_name is None else model_name
+
+    # pre allocate result dictionarys
+    combined_metrics = {run: None for run in range(no_validations)}
+    combined_forecast = {run: None for run in range(no_validations)}
+
+    for i in range(no_validations): 
+        print(f"Running Cross Validation No. {i+1}...")
+        # run individual cross validations and save metric for each if save_individual=True
+        metrics, forecast_df, model = cross_validation(cfg, save_results=save_individual, fixed_test_set=fixed_test_set, save_individual=False, model_name=model_name, hparams=hparams, dataset=dataset)
+        combined_metrics[i] = metrics
+        combined_forecast[i] = forecast_df.rename(columns={col: col+'_'+str(i) for col in forecast_df.columns})
+
+    # combine results and get mean metrics
+    combined_metrics_df = pd.concat([df for df in combined_metrics.values()], axis=1)
+    mean_metrics_df = combined_metrics_df['Fold'].copy()
+    for metric in [metric for metric in combined_metrics_df.columns.unique() if metric != 'Fold']: 
+        mean_metrics_df[metric+'_mean'] = combined_metrics_df[metric].mean(axis='columns')
+        mean_metrics_df[metric+'_std'] = combined_metrics_df[metric].std(axis='columns')
+    mean_metrics_df = mean_metrics_df.T.drop_duplicates().T
+
+    combined_forecast_df = pd.concat([df for df in combined_forecast.values()], axis=1)
+    
+    # save results
+    evalutation_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    if save_results:
+        if cfg['TRAIN']['DECOMPOSITION'] == []:
+            results_path = cfg['PATHS']['EXPERIMENTS']+'/'+cfg['DATA']['SAVE_LABEL']+'/'+cfg['DATA']['CURRENT_DMA']+'_multi_validation_'+model_name
+        else: 
+            results_path = cfg['PATHS']['EXPERIMENTS']+'/'+cfg['DATA']['SAVE_LABEL']+'/'+cfg['DATA']['CURRENT_DMA']+'_'+cfg['TRAIN']['DECOMPOSITION'][-1]+'_multi_validation_'+model_name
+        
+        mean_metrics_df.to_csv(results_path+evalutation_time+'_metrics.csv', columns=mean_metrics_df.columns, index_label=False, index=False)
+        combined_forecast_df.to_csv(results_path+evalutation_time+'_forecast.csv', columns=combined_forecast_df.columns, index_label=False, index=False)
+    
+    return mean_metrics_df, combined_forecast_df, model
+
+
+def multi_train(cfg, experiment, save_model, save_results=True, save_individual=True):
     '''
     Deals with instances where multiple models require training at once to be combined.
     :param cfg: project config
@@ -353,7 +401,9 @@ def multi_train(cfg, experiment, save_model):
         elif experiment == 'hparam_search':
             bayesian_hparam_optimization(cfg)
         elif experiment == 'cross_validation':
-            _, forecast_df, model = cross_validation(cfg, save_results=True, fixed_test_set=True, save_individual=True)
+            _, forecast_df, model = cross_validation(cfg, save_results=save_results, fixed_test_set=True, save_individual=save_individual)
+        elif experiment == 'multi_cross_validation':
+            _, forecast_df, model = multi_cross_validation(cfg, save_results=save_results, fixed_test_set=True, save_individual=True)
         else:
             raise Exception("Invalid entry in TRAIN > EXPERIMENT field of config.yml.")
 
@@ -372,12 +422,13 @@ def multi_train(cfg, experiment, save_model):
             else: 
                 total_forecast_df = total_forecast_df + forecast_df
 
-            # get results and save
-            save_dir = cfg['PATHS']['EXPERIMENTS']
-            model.name += '_combined'
-            test_metrics, forecast_df = model.evaluate_forecast(total_forecast_df, save_dir=save_dir, plot=True)
-            print('\n\nPrinting combined model residuals...')
-            print('Test forecast metrics: ', test_metrics)
+    if save_results and (experiment != 'hparam_search'):
+        # get results and save
+        save_dir = f"{cfg['PATHS']['EXPERIMENTS']}/{cfg['DATA']['SAVE_LABEL']}/"
+        model.name += '_combined'
+        test_metrics, forecast_df = model.evaluate_forecast(total_forecast_df, save_dir=save_dir, plot=True)
+        print('\n\nPrinting combined model results...')
+        print('Test forecast metrics: ', test_metrics)
 
     return
 
@@ -401,7 +452,7 @@ def train_experiment(cfg=None, experiment='single_train', save_model=False, writ
         None
 
     # Conduct the desired train experiment
-    if cfg['TRAIN']['DECOMPOSITION'] != []:
+    if (cfg['TRAIN']['DECOMPOSITION'] == ['CEEMDAN']) or (cfg['TRAIN']['DECOMPOSITION'] == ['DWT']):
         multi_train(cfg, experiment, save_model)
     elif experiment == 'train_single':
         train_single(cfg, save_model=save_model, save_metrics=True, fixed_test_set=True)
@@ -411,6 +462,8 @@ def train_experiment(cfg=None, experiment='single_train', save_model=False, writ
         bayesian_hparam_optimization(cfg)
     elif experiment == 'cross_validation':
         cross_validation(cfg, save_results=True, fixed_test_set=True, save_individual=True)
+    elif experiment == 'multi_cross_validation':
+        multi_cross_validation(cfg, save_results=True, fixed_test_set=True)
 
     else:
         raise Exception("Invalid entry in TRAIN > EXPERIMENT field of config.yml.")
