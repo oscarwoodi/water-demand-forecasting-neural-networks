@@ -1,5 +1,6 @@
 import pmdarima
 from statsmodels.tsa.statespace.sarimax import SARIMAX, SARIMAXResults
+import pandas as pd
 import os
 from models.model import ModelStrategy
 
@@ -9,7 +10,7 @@ class SARIMAXModel(ModelStrategy):
     '''
 
     def __init__(self, hparams, log_dir=None):
-        univariate = True
+        univariate = False
         model = None
         name = 'SARIMAX'
         self.auto_params = hparams.get('AUTO_PARAMS', False)
@@ -19,7 +20,8 @@ class SARIMAXModel(ModelStrategy):
         self.seasonal_p = int(hparams.get('SEASONAL_P', 5))
         self.seasonal_d = int(hparams.get('SEASONAL_D', 2))
         self.seasonal_q = int(hparams.get('SEASONAL_Q', 0))
-        self.m = int(hparams.get('M', 12))
+        self.preprocesses = hparams.get('PREPROCESS', ['diurnal'])
+        self.m = int(hparams.get('M', 24))
         super(SARIMAXModel, self).__init__(model, univariate, name, log_dir=log_dir)
 
 
@@ -28,10 +30,18 @@ class SARIMAXModel(ModelStrategy):
         Fits a SARIMAX forecasting model
         :param dataset: A Pandas DataFrame with 2 columns: Date and Consumption
         '''
-        if dataset.shape[1] != 2:
-            raise Exception('Univariate models cannot fit with datasets with more than 1 feature.')
-        dataset.rename(columns={'Date': 'ds', 'Consumption': 'y'}, inplace=True)
-        series = dataset.set_index('ds')
+        if ('Diurnal' in dataset.columns) and ('diurnal' in self.preprocesses):
+            print('Using diurnal residual for SARIMAX model')
+            dataset = dataset.rename(columns={'Date': 'ds', 'Consumption': 'y', 'Diurnal': 'd'})
+            series = dataset.set_index('ds').copy()
+            series = series['y'] - series['d']
+        else: 
+            if dataset.shape[1] != 2:
+                print('Univariate models cannot fit with datasets with more than 1 feature.')
+                dataset = dataset[['Date', 'Consumption']]                  
+            dataset = dataset.rename(columns={'Date': 'ds', 'Consumption': 'y', 'Diurnal': 'd'})
+            series = dataset.set_index('ds').copy()
+
         if self.auto_params:
             best_model = pmdarima.auto_arima(series, seasonal=True, stationary=False, m=self.m, information_criterion='aic',
                                              max_order=2*(self.trend_p + self.trend_q), max_p=2*self.trend_p, max_d=2*self.trend_d,
@@ -57,16 +67,30 @@ class SARIMAXModel(ModelStrategy):
         :param save_dir: Directory in which to save forecast metrics
         :param plot: Flag indicating whether to plot the forecast evaluation
         '''
-        train_set.rename(columns={'Date': 'ds', 'Consumption': 'y'}, inplace=True)
-        test_set.rename(columns={'Date': 'ds', 'Consumption': 'y'}, inplace=True)
-        train_set = train_set.set_index('ds')
-        test_set = test_set.set_index('ds')
-        train_set["model"] = self.model.fittedvalues
-        test_set["forecast"] = self.forecast(test_set.shape[0])['Consumption'].tolist()
+        if 'diurnal' in self.preprocesses:
+            train_set = train_set.rename(columns={'Date': 'ds', 'Consumption': 'y', 'Diurnal': 'd'})
+            test_set = test_set.rename(columns={'Date': 'ds', 'Consumption': 'y', 'Diurnal': 'd'})
+            train_set = train_set.set_index('ds')
+            test_set = test_set.set_index('ds')
+            train_set["model"] = self.model.fittedvalues + train_set['d'].values
+            test_set["forecast"] = (self.forecast(test_set.shape[0])['Consumption'].values + test_set['d'].values).tolist()
 
-        df_forecast = train_set.append(test_set).rename(columns={'y': 'gt'})
-        test_metrics = self.evaluate_forecast(df_forecast, save_dir=save_dir, plot=plot)
-        return test_metrics
+            df_forecast = pd.concat([train_set, test_set]).rename(columns={'y': 'gt'})
+            df_forecast['test_pred'] = 0
+            test_metrics, df_forecast = self.evaluate_forecast(df_forecast, save_dir=save_dir, plot=plot)
+        else: 
+            train_set.rename(columns={'Date': 'ds', 'Consumption': 'y'}, inplace=True)
+            test_set.rename(columns={'Date': 'ds', 'Consumption': 'y'}, inplace=True)
+            train_set = train_set.set_index('ds')
+            test_set = test_set.set_index('ds')
+            train_set["model"] = self.model.fittedvalues
+            test_set["forecast"] = self.forecast(test_set.shape[0])['Consumption'].tolist()
+
+            df_forecast = pd.concat([train_set, test_set]).rename(columns={'y': 'gt'})
+            df_forecast['test_pred'] = 0
+            test_metrics, df_forecast = self.evaluate_forecast(df_forecast, save_dir=save_dir, plot=plot)
+
+        return test_metrics, df_forecast
 
 
     def forecast(self, days, recent_data=None):

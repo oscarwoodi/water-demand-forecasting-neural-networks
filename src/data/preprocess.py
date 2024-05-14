@@ -236,7 +236,7 @@ def diurnal_flow(cfg, dataset, stat='mean'):
     avg_df = avg_df.rename(columns={dma : 'diurnal_'+dma for dma in dmas})
 
     # shift forward to give next diurnal value
-    avg_df = avg_df.shift(-1).fillna(0)
+    #avg_df = avg_df.shift(-1).fillna(0)
 
     return avg_df
 
@@ -350,30 +350,7 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
             for set in preprocessed_transforms.keys(): 
                 save_path_ceemdan = f"{cfg['PATHS']['PREPROCESSED_CEEMDAN_DATA'][:-4]}_ceemdan_{set}.csv" if out_path is None else out_path
                 preprocessed_transforms[set].to_csv(save_path_ceemdan, sep=',', header=True)
-    """ 
-    # splits processed data into individual dmas
-    if save_split_prepr_df:
-        for dma in dmas: 
-            # add all relevant cols for each dma
-            cols = []
-            cols += weather_feats + time_feats
-            cols += [i for i in preprocessed_df.columns if dma[-1] in i.split('_')]
- 
-            save_path = cfg['PATHS']['PREPROCESSED_DATA'][:-4]+'_'+dma+'.csv' if out_path is None else out_path[:-4]+'_'+dma+'.csv'
-            preprocessed_df[cols].rename(columns={dma: 'Consumption'}).to_csv(save_path, sep=',', header=True)
-
-            if 'DWT' in preprocesses: 
-                save_path_dwt = cfg['PATHS']['PREPROCESSED_DWT_DATA'][:-4]+'_'+dma+'_dwt_approx.csv' if out_path is None else out_path[:-4]+'_'+dma+'.csv'
-                save_path_residuals = cfg['PATHS']['PREPROCESSED_DWT_DATA'][:-4]+'_'+dma+'_dwt_residual.csv' if out_path is None else out_path[:-4]+'_'+dma+'.csv'
-                
-                dwt_df[cols].rename(columns={dma: 'Consumption'}).to_csv(save_path_dwt, sep=',', header=True)
-                residuals_df[cols].rename(columns={dma: 'Consumption'}).to_csv(save_path_residuals, sep=',', header=True)
-
-            if 'CEEMDAN' in preprocesses: 
-                for set in preprocessed_transforms.keys(): 
-                    save_path_ceemdan = f"{cfg['PATHS']['PREPROCESSED_CEEMDAN_DATA'][:-4]}_{dma}_ceemdan_{set}.csv" if out_path is None else out_path
-                    preprocessed_transforms[set][cols].rename(columns={dma: 'Consumption'}).to_csv(save_path_ceemdan, sep=',', header=True)
-    """
+  
     print("Done. Runtime = ", ((datetime.today() - run_start).seconds / 60), " min")
     return preprocessed_df
 

@@ -84,6 +84,7 @@ class ModelStrategy(object):
             metrics['MAPE'] = forecast_df["error_pct"].apply(lambda x: np.abs(x)).mean()
             metrics['MSE'] = forecast_df["error"].apply(lambda x: x ** 2).mean()
             metrics['RMSE'] = np.sqrt(metrics['MSE'])  # root mean squared error
+            print(metrics)
 
             # 95% Confidence intervals
             STD_DEVS = 1.96

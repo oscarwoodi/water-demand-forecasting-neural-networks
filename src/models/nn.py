@@ -52,9 +52,18 @@ class NNModel(ModelStrategy):
         :param dataset: A Pandas DataFrame with feature columns and a Consumption column
         '''
         df = dataset.copy()
+        if 'diurnal' in self.preprocesses: 
+            df_dirunal = df['Diurnal'].copy()
+            df['Consumption'] -= df['Diurnal'].values
+
+        if 'residuals' in self.preprocesses: 
+            df_resid = df['Residual'].copy()
+            df['Consumption'] -= df['Residual'].values
+
         if self.univariate:
             df = df[['Date', 'Consumption']]
-        df.loc[:, dataset.columns != 'Date'] = self.standard_scaler.fit_transform(dataset.loc[:, dataset.columns != 'Date'])
+
+        df.loc[:, df.columns != 'Date'] = self.standard_scaler.fit_transform(df.loc[:, df.columns != 'Date'])
 
         train_df = df[0:-int(df.shape[0]*self.val_frac)]
         val_df = df[-int(df.shape[0]*self.val_frac):]
@@ -86,6 +95,20 @@ class NNModel(ModelStrategy):
         :param plot: Flag indicating whether to plot the forecast evaluation
         '''
 
+        if 'diurnal' in self.preprocesses: 
+            train_set_diurnal = train_set['Diurnal'].copy()
+            train_set['Consumption'] -= train_set['Diurnal'].values
+            test_set_diurnal = test_set['Diurnal'].copy()
+            test_set['Consumption'] -= test_set['Diurnal'].values
+        elif 'residuals' in self.preprocesses: 
+            # using sarima forecast as element summed to residuals
+            train_set_resid = train_set['Residual']
+            train_set['Consumption'] -= train_set['Residual'].values
+            test_set_resid = test_set['Residual']
+            test_set_predictions = test_set['Residual_forecast']
+            test_set['Consumption'] -= test_set['Residual'].values
+            print(test_set_resid)
+        
         if self.univariate:
             train_set = train_set[['Date', 'Consumption']]
             test_set = test_set[['Date', 'Consumption']]
@@ -134,6 +157,19 @@ class NNModel(ModelStrategy):
             test_forecast_dates = self.virtual_points(test_forecast_dates, self.n, inverse=True)
             train_dates = self.virtual_points(train_dates, self.n, inverse=True)
 
+        if 'diurnal' in self.preprocesses: 
+            train_set['Consumption'] += train_set_diurnal
+            test_set['Consumption'] += test_set_diurnal
+            train_preds += np.array(train_set_diurnal[-len(train_preds):].values).reshape(-1, 1)
+            test_preds += np.array(test_set_diurnal.values).reshape(-1, 1)
+            test_forecast_df['Consumption'] += test_set_diurnal.values
+        elif 'residuals' in self.preprocesses: 
+            train_set['Consumption'] += train_set_resid
+            test_set['Consumption'] += test_set_resid
+            train_preds += np.array(train_set_resid[-len(train_preds):].values).reshape(-1, 1)
+            test_preds += np.array(test_set_predictions.values).reshape(-1, 1)
+            test_forecast_df['Consumption'] += test_set_predictions.values
+
         # Create a DataFrame of combined training set predictions and test set forecast with ground truth
         df_train = pd.DataFrame({'ds': train_dates, 'gt': train_set.iloc[-len(train_preds):]['Consumption'],
                                  'model': train_preds[:,consumption_idx]})
@@ -179,7 +215,7 @@ class NNModel(ModelStrategy):
         preds_df['Consumption'] = preds
 
         preds = self.standard_scaler.inverse_transform(preds_df.loc[:, preds_df.columns != 'Date'])
-        forecast_dates = pd.date_range(self.forecast_start, periods=days).tolist()
+        forecast_dates = pd.date_range(self.forecast_start, periods=days, freq='h').tolist()
         forecast_df = pd.DataFrame({'Date': forecast_dates, 'Consumption': preds[:,0].tolist()})
         if 'virtual' in self.preprocesses:
             forecast_df = self.virtual_points(forecast_df, self.n, inverse=True)

@@ -35,22 +35,40 @@ def load_dataset(cfg, fixed_test_set=True):
     :return: DataFrames for training and test sets
     '''
     try:
+        # get decomposed data if required
         if 'DWT' in cfg['TRAIN']['DECOMPOSITION']: 
-            df = pd.read_csv(f"{cfg['PATHS']['PREPROCESSED_DWT_DATA'][:-4]}_{cfg['TRAIN']['DECOMPOSITION'][-1].lower()}.csv")
+            path = f"{cfg['PATHS']['PREPROCESSED_DWT_DATA'][:-4]}_{cfg['TRAIN']['DECOMPOSITION'][-1].lower()}"
+            df = pd.read_csv(f"{path}.csv")
         elif 'CEEMDAN' in cfg['TRAIN']['DECOMPOSITION']: 
-            df = pd.read_csv(f"{cfg['PATHS']['PREPROCESSED_CEEMDAN_DATA'][:-4]}_{cfg['TRAIN']['DECOMPOSITION'][-1].lower()}.csv")
+            path = f"{cfg['PATHS']['PREPROCESSED_CEEMDAN_DATA'][:-4]}_{cfg['TRAIN']['DECOMPOSITION'][-1].lower()}"
+            df = pd.read_csv(f"{path}.csv")
         else: 
-            df = pd.read_csv(cfg['PATHS']['PREPROCESSED_DATA'])
+            path = cfg['PATHS']['PREPROCESSED_DATA']
+            df = pd.read_csv(path)
         
+        # separate out individual dma 
         if cfg['DATA']['CURRENT_DMA'] != None:
             df['Consumption'] = df[cfg['DATA']['CURRENT_DMA']]
+            # add diurnal data if required
             if 'DIURNAL' in cfg['DATA']['SPECIFIC_FEATS']: 
                 df['Diurnal'] = df[['diurnal_'+cfg['DATA']['CURRENT_DMA']]]
+
+            # add sarimax residual to dataset
+            if 'RESIDUALS' in cfg['DATA']['SPECIFIC_FEATS']: 
+                path = cfg['PATHS']['PREPROCESSED_MODEL_RESIDUAL_DATA']
+                sarimax_result = pd.read_csv(path)
+                residual_model = sarimax_result['Consumption_'+cfg['DATA']['CURRENT_DMA']].fillna(0).astype('float64').tolist()
+                forecast_model = sarimax_result['Forecast_'+cfg['DATA']['CURRENT_DMA']].fillna(0).astype('float64').tolist()
+                df['Residual'] = 0.0
+                df['Residual_forecast'] = 0.0
+                df['Residual'].iloc[-int(len(residual_model)+cfg['DATA']['END_TRIM']):-int(cfg['DATA']['END_TRIM'])] = residual_model
+                df['Residual_forecast'].iloc[-int(len(forecast_model)+cfg['DATA']['END_TRIM']):-int(cfg['DATA']['END_TRIM'])] = forecast_model
+
             cols = [col for col in df.columns if 'dma' not in col.split('_')]
             df = df[cols]
 
     except FileNotFoundError:
-        print("No file found at " + cfg['PATHS']['PREPROCESSED_DATA'] + ". Running preprocessing of client data.")
+        print("No file found at " + path + ". Running preprocessing of client data.")
         df = preprocess_ts(cfg, save_raw_df=True, save_prepr_df=True)
     df['Date'] = pd.to_datetime(df['Date'])
 
@@ -68,6 +86,7 @@ def load_dataset(cfg, fixed_test_set=True):
         test_df = df[int((1 - cfg['DATA']['TEST_FRAC']) * df.shape[0]):]
     print('Size of training set: ', train_df.shape[0])
     print('Size of test set: ', test_df.shape[0])
+    print(test_df)
 
     return train_df, test_df, df
 
@@ -183,7 +202,6 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
     n_folds = cfg['TRAIN']['N_FOLDS']
     if dataset is None:
         _, _, dataset = load_dataset(cfg, fixed_test_set=fixed_test_set)
-        print(dataset)
     if n_folds is None:
         n_folds = n_quantiles
     if metrics is None:
@@ -219,9 +237,10 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
 
             # Separate into training and test sets
             train_df, test_df = dataset.iloc[train_index], dataset.iloc[test_index]
-            if model.univariate:
+
+            """ if model.univariate:
                 train_df = train_df[['Date', 'Consumption']]
-                test_df = test_df[['Date', 'Consumption']]
+                test_df = test_df[['Date', 'Consumption']] """
 
             # Train the model and evaluate performance on test set
             model.fit(train_df)
