@@ -34,6 +34,10 @@ def load_dataset(cfg, fixed_test_set=True):
     :param cfg: Project config
     :return: DataFrames for training and test sets
     '''
+    time_feats = cfg['DATA']['TIME_FEATS']
+    weather_feats = cfg['DATA']['WEATHER_FEATS']
+    features = time_feats + weather_feats
+
     try:
         # get decomposed data if required
         if 'DWT' in cfg['TRAIN']['DECOMPOSITION']: 
@@ -50,20 +54,24 @@ def load_dataset(cfg, fixed_test_set=True):
         if cfg['DATA']['CURRENT_DMA'] != None:
             df['Consumption'] = df[cfg['DATA']['CURRENT_DMA']]
             # add diurnal data if required
-            if 'DIURNAL' in cfg['DATA']['SPECIFIC_FEATS']: 
+            if 'DIURNAL' in cfg['TRAIN']['DECOMPOSITION']: 
                 df['Diurnal'] = df[['diurnal_'+cfg['DATA']['CURRENT_DMA']]]
+                features += ['Diurnal']
 
             # add sarimax residual to dataset
-            if 'RESIDUALS' in cfg['DATA']['SPECIFIC_FEATS']: 
+            if 'RESIDUALS' in cfg['TRAIN']['DECOMPOSITION']: 
                 path = cfg['PATHS']['PREPROCESSED_MODEL_RESIDUAL_DATA']
                 sarimax_result = pd.read_csv(path)
                 residual_model = sarimax_result['Consumption_'+cfg['DATA']['CURRENT_DMA']].fillna(0).astype('float64').tolist()
                 forecast_model = sarimax_result['Forecast_'+cfg['DATA']['CURRENT_DMA']].fillna(0).astype('float64').tolist()
                 df['Residual'] = 0.0
                 df['Residual_forecast'] = 0.0
-                df['Residual'].iloc[-int(len(residual_model)+cfg['DATA']['END_TRIM']):-int(cfg['DATA']['END_TRIM'])] = residual_model
-                df['Residual_forecast'].iloc[-int(len(forecast_model)+cfg['DATA']['END_TRIM']):-int(cfg['DATA']['END_TRIM'])] = forecast_model
-
+                df['Residual'].iloc[-int(len(residual_model)):] = residual_model
+                df['Residual_forecast'].iloc[-int(len(forecast_model)):] = forecast_model
+                features += ['Residual']
+                features += ['Residual_forecast']
+            
+            df = df.loc[:, ['Date', 'Consumption'] + features]
             cols = [col for col in df.columns if 'dma' not in col.split('_')]
             df = df[cols]
 
@@ -78,7 +86,7 @@ def load_dataset(cfg, fixed_test_set=True):
             train_df = df[:int(df.shape[0])]
             test_df = df[int(df.shape[0]):]
         else:
-            df = df[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']-cfg['DATA']['END_TRIM']):int(-cfg['DATA']['END_TRIM'])].reset_index(drop=True)
+            df = df[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']):].reset_index(drop=True)
             train_df = df[int(-cfg['DATA']['TRAIN_DAYS']-cfg['DATA']['TEST_DAYS']):int(-cfg['DATA']['TEST_DAYS'])]
             test_df = df[int(-cfg['DATA']['TEST_DAYS']):]
     else:
@@ -86,7 +94,6 @@ def load_dataset(cfg, fixed_test_set=True):
         test_df = df[int((1 - cfg['DATA']['TEST_FRAC']) * df.shape[0]):]
     print('Size of training set: ', train_df.shape[0])
     print('Size of test set: ', test_df.shape[0])
-    print(test_df)
 
     return train_df, test_df, df
 
@@ -109,11 +116,6 @@ def train_model(cfg, model_def, hparams, train_df, test_df, save_model=False, wr
     model = model_def(hparams, log_dir=log_dir)  # Create instance of model
     if not dated_paths:
         model.train_date = ''
-
-    # Fit the model
-    if model.univariate:
-        train_df = train_df[['Date', 'Consumption']]
-        test_df = test_df[['Date', 'Consumption']]
 
     model.fit(train_df)
 
@@ -237,11 +239,6 @@ def cross_validation(cfg, dataset=None, metrics=None, model_name=None, hparams=N
 
             # Separate into training and test sets
             train_df, test_df = dataset.iloc[train_index], dataset.iloc[test_index]
-
-            """ if model.univariate:
-                train_df = train_df[['Date', 'Consumption']]
-                test_df = test_df[['Date', 'Consumption']] """
-
             # Train the model and evaluate performance on test set
             model.fit(train_df)
             
@@ -371,10 +368,15 @@ def multi_cross_validation(cfg, save_results=True, fixed_test_set=True, save_ind
 
     # combine results and get mean metrics
     combined_metrics_df = pd.concat([df for df in combined_metrics.values()], axis=1)
-    mean_metrics_df = combined_metrics_df['Fold'].copy()
-    for metric in [metric for metric in combined_metrics_df.columns.unique() if metric != 'Fold']: 
-        mean_metrics_df[metric+'_mean'] = combined_metrics_df[metric].mean(axis='columns')
-        mean_metrics_df[metric+'_std'] = combined_metrics_df[metric].std(axis='columns')
+    mean_metrics_df = combined_metrics_df[['Fold']].copy()
+    for metric in [metric for metric in combined_metrics_df.columns.unique() if metric != 'Fold']:
+        if no_validations > 1: 
+            mean_metrics_df[metric+'_mean'] = combined_metrics_df[metric].mean(axis='columns')
+            mean_metrics_df[metric+'_std'] = combined_metrics_df[metric].std(axis='columns')
+        else: 
+            mean_metrics_df[metric+'_mean'] = combined_metrics_df[metric]
+            mean_metrics_df[metric+'_std'] = combined_metrics_df[metric]
+            
     mean_metrics_df = mean_metrics_df.T.drop_duplicates().T
 
     combined_forecast_df = pd.concat([df for df in combined_forecast.values()], axis=1)

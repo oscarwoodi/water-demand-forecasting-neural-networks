@@ -7,7 +7,7 @@ PATHS:
   PREPROCESSED_DATA: 'data/preprocessed/all/preprocessed.csv'
   PREPROCESSED_DWT_DATA: 'data/preprocessed/dwt/preprocessed.csv'
   PREPROCESSED_CEEMDAN_DATA: 'data/preprocessed/ceemdan/preprocessed.csv'
-  PREPROCESSED_MODEL_RESIDUAL_DATA: 'data/preprocessed/residuals/sarima/sarima.csv'
+  PREPROCESSED_MODEL_RESIDUAL_DATA: 'data/preprocessed/residuals/sarima/sarima_16wk.csv'
   CLIENT_DATA: 'data/preprocessed/client_data.csv'
   CAT_FEAT_MAP: 'data/serializations/cat_feat_map.yml'
   MODELS: 'results/models/'
@@ -44,31 +44,31 @@ DATES:
 # Constants describing data
 DATA:
   FREQUENCY: ['H']
-  PREPROCESS: ['IMPUTE', 'CEEMDAN', 'DWT', 'ANOMOLY_REMOVAL']  # One of ['IMPUTE', 'CEEMDAN', 'DWT', 'ANOMOLY_REMOVAL']
+  PREPROCESS: ['IMPUTE', 'ANOMOLY_REMOVAL']  # One of ['IMPUTE', 'CEEMDAN', 'DWT', 'ANOMOLY_REMOVAL']
   CEEMDAN_DECOMPOSITIONS: 5 # None
   DWT_DECOMPOSITIONS: 1 # None
   WEATHER_FEATS: []  # One of ['AIR_TEMP', 'AIR_HUMIDITY', WIND_SPEED', RAIN_DEPTH']
-  TIME_FEATS: ['WEEKEND', 'HOUR', 'HOLIDAY']  # One of ['WEEKEND', 'HOUR', 'HOLIDAY']
-  SPECIFIC_FEATS: ['DIURNAL', 'K_MEANS', 'RESIDUALS']  # One of ['DIURNAL', 'K_MEANS']
+  TIME_FEATS: []  # One of ['WEEKEND', 'HOUR', 'HOLIDAY', 'WEEKDAY']
+  SPECIFIC_FEATS: ['RESIDUALS']  # One of ['DIURNAL', 'K_MEANS', 'RESIDUALS']
   TEST_FRAC: 0.25
   TEST_DAYS: 168
-  TRAIN_DAYS: 672
-  START_TRIM: 11000
+  TRAIN_DAYS: 2688
+  START_TRIM: 2000
   END_TRIM: 168
-  DMAS: ['dma_a']
+  DMAS: ['dma_a', 'dma_b', 'dma_g', 'dma_i']
   MISSING_RANGES: []
   SAVE_LABEL: TEST
 
 # Training experiments
 TRAIN:
-  MODEL: 'sarimax'                      # One of ['prophet', 'lstm', 'gru', '1dcnn', 'arima', 'sarimax', 'random_forest', 'linear_regression']
-  DECOMPOSITION: []                 # One of ['CEEMDAN', 'DWT', 'SARIMAX'] 
+  MODEL: '1dcnn'                      # One of ['prophet', 'lstm', 'gru', '1dcnn', 'arima', 'sarimax', 'random_forest', 'linear_regression']
+  DECOMPOSITION: ['RESIDUALS']                 # One of ['CEEMDAN', 'DWT', 'RESIDUALS', 'DIURNAL'] 
   EXPERIMENT: 'cross_validation'        # One of ['train_single', 'train_all', 'hparam_search', 'cross_validation', 'multi_cross_validation']
-  VALIDATIONS: 2
-  N_QUANTILES: 34
+  VALIDATIONS: 5
+  N_QUANTILES: 118
   N_FOLDS: 7
   HPARAM_SEARCH:
-    N_EVALS: 30
+    N_EVALS: 40
     HPARAM_OBJECTIVE: 'MSE'             # One of ['MAPE', 'MAE', 'MSE', 'RMSE']
     LAST_FOLDS: 4
   INTERPRETABILITY: true
@@ -95,15 +95,16 @@ HPARAMS:
     D: 2
     Q: 2
   SARIMAX:
+    UNIVARIATE: true
     AUTO_PARAMS: false
-    TREND_P: 2
-    TREND_D: 1
+    TREND_P: 1
+    TREND_D: 0
     TREND_Q: 1
-    SEASONAL_P: 4
+    SEASONAL_P: 1
     SEASONAL_D: 0
-    SEASONAL_Q: 0
+    SEASONAL_Q: 1
     M: 24
-    PREPROCESS: []
+    PREPROCESS: ['diurnal']
   ANN: 
     UNIVARIATE: true
     T_X: 256
@@ -117,44 +118,46 @@ HPARAMS:
     FC0_UNITS: 160
     FC1_UNITS: 96
     FC2_UNITS: 64
-    PREPROCESS: ['fragments', 'residuals']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
+    PREPROCESS: ['windowed', 'diurnal']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
   LSTM:
     UNIVARIATE: true
     T_X: 168
-    BATCH_SIZE: 48
-    EPOCHS: 100
+    BATCH_SIZE: 32
+    EPOCHS: 120
     PATIENCE: 15
     VAL_FRAC: 0.25
-    LR: 0.0001
+    LR: 0.00001
     LOSS: 'mse'
-    UNITS: 128
-    DROPOUT: 0.2
-    FC0_UNITS: 128
-    FC1_UNITS: 128
-    PREPROCESS: ['fragments']
-  GRU:
-    UNIVARIATE: false
-    T_X: 168
-    BATCH_SIZE: 32
-    EPOCHS: 100
-    PATIENCE: 10
-    VAL_FRAC: 0.25
-    LR: 0.0001
-    LOSS: 'mse'
-    UNITS: 128
+    UNITS_0: 16
+    UNITS_1: 16
     DROPOUT: 0.25
     FC0_UNITS: 128
     FC1_UNITS: 128
-    PREPROCESS: ['fragments']
+    PREPROCESS: ['fragments', 'diurnal']
+  GRU:
+    UNIVARIATE: true
+    T_X: 168
+    BATCH_SIZE: 24
+    EPOCHS: 150
+    PATIENCE: 8
+    VAL_FRAC: 0.25
+    LR: 0.001
+    LOSS: 'mse'
+    UNITS_0: 64
+    UNITS_1: 64
+    DROPOUT: 0.4
+    FC0_UNITS: 0
+    FC1_UNITS: 0
+    PREPROCESS: ['fragments', 'residuals']
   1DCNN:
     UNIVARIATE: true
     T_X: 180
     BATCH_SIZE: 32
-    EPOCHS: 500
-    PATIENCE: 5
-    VAL_FRAC: 0.1
+    EPOCHS: 150
+    PATIENCE: 15
+    VAL_FRAC: 0.2
     LR: 0.0003
-    LOSS: 'mae'
+    LOSS: 'mse'
     FILTERS: 16
     KERNEL_SIZE: 3
     STRIDE: 1
@@ -162,7 +165,7 @@ HPARAMS:
     FC0_UNITS: 64
     FC1_UNITS: 32
     DROPOUT: 0.0
-    PREPROCESS: ['fragment']
+    PREPROCESS: ['fragments', 'residuals']
   LINEAR_REGRESSION:
     UNIVARIATE: true
     T_X: 300
@@ -186,6 +189,31 @@ HPARAM_SEARCH:
     SEASONALITY_MODE:
       TYPE: 'set'
       RANGE: ['additive', 'multiplicative']
+  GRU:
+    T_X:
+      TYPE: 'set'
+      RANGE: [168]
+    BATCH_SIZE:
+      TYPE: 'set'
+      RANGE: [16, 24, 48]
+    PATIENCE:
+      TYPE: 'int_uniform'
+      RANGE: [5, 15]
+    LR:
+      TYPE: 'float_log'
+      RANGE: [0.0001, 0.001, 0.01]
+    LOSS:
+      TYPE: 'set'
+      RANGE: ['mse']
+    DROPOUT:
+      TYPE: 'float_uniform'
+      RANGE: [0.0, 0.5]
+    UNITS_0:
+      TYPE: 'set'
+      RANGE: [4, 8, 16, 32, 64]
+    UNITS_1:
+      TYPE: 'set'
+      RANGE: [4, 8, 16, 32, 64]
   ANN:
     T_X:
       TYPE: 'set'
@@ -198,7 +226,7 @@ HPARAM_SEARCH:
       RANGE: [5, 15]
     LR:
       TYPE: 'float_log'
-      RANGE: [0.00001, 0.001]
+      RANGE: [0.0001, 0.001, 0.01]
     LOSS:
       TYPE: 'set'
       RANGE: ['mse']
@@ -216,7 +244,7 @@ HPARAM_SEARCH:
       RANGE: [32, 64, 96, 160]
     PREPROCESS: 
       TYPE: 'set'
-      RANGE: ['fragments'] 
+      RANGE: ['windowed'] 
   LSTM:
     T_X:
       TYPE: 'int_uniform'

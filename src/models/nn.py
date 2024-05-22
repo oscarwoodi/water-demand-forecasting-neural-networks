@@ -1,12 +1,13 @@
 from abc import ABCMeta, abstractmethod
 import tensorflow as tf
 import math
-from tensorflow.keras import Model
+from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense, Dropout, Input, LSTM, GRU, Conv1D, MaxPooling1D, Flatten
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, TensorBoard
 from tensorflow.keras.metrics import MeanSquaredError, RootMeanSquaredError, MeanAbsoluteError, MeanAbsolutePercentageError
 from tensorflow.keras.models import save_model, load_model
+from keras import regularizers
 from sklearn.preprocessing import StandardScaler
 from joblib import dump, load
 import pandas as pd
@@ -28,7 +29,7 @@ class NNModel(ModelStrategy):
         self.batch_size = int(hparams.get('BATCH_SIZE', 32))
         self.epochs = int(hparams.get('EPOCHS',120))
         self.patience = int(hparams.get('PATIENCE', 15))
-        self.val_frac = hparams.get('VAL_FRAC', 0.25)
+        self.val_frac = hparams.get('VAL_FRAC', 0.2)
         self.T_x = int(hparams.get('T_X', 168))
         self.metrics = [MeanSquaredError(name='mse'), RootMeanSquaredError(name='rmse'), MeanAbsoluteError(name='mae'),
                         MeanAbsolutePercentageError(name='mape')]
@@ -55,16 +56,18 @@ class NNModel(ModelStrategy):
         if 'diurnal' in self.preprocesses: 
             df_dirunal = df['Diurnal'].copy()
             df['Consumption'] -= df['Diurnal'].values
+            df = df.drop('Diurnal', axis='columns')
 
         if 'residuals' in self.preprocesses: 
             df_resid = df['Residual'].copy()
             df['Consumption'] -= df['Residual'].values
-
+            df = df.drop(['Residual', 'Residual_forecast'], axis='columns')
+  
         if self.univariate:
             df = df[['Date', 'Consumption']]
-
-        df.loc[:, df.columns != 'Date'] = self.standard_scaler.fit_transform(df.loc[:, df.columns != 'Date'])
-
+        
+        self.transform_cols = [col for col in df.columns if col not in ['Date', 'HOLIDAY', 'WEEKEND', 'HOUR', 'DAY']]
+        df.loc[:, self.transform_cols] = self.standard_scaler.fit_transform(df.loc[:, self.transform_cols])
         train_df = df[0:-int(df.shape[0]*self.val_frac)]
         val_df = df[-int(df.shape[0]*self.val_frac):]
 
@@ -94,12 +97,14 @@ class NNModel(ModelStrategy):
         :param save_dir: Directory in which to save forecast metrics
         :param plot: Flag indicating whether to plot the forecast evaluation
         '''
-
+        print(train_set)
         if 'diurnal' in self.preprocesses: 
             train_set_diurnal = train_set['Diurnal'].copy()
             train_set['Consumption'] -= train_set['Diurnal'].values
             test_set_diurnal = test_set['Diurnal'].copy()
             test_set['Consumption'] -= test_set['Diurnal'].values
+            test_set = test_set.drop('Diurnal', axis='columns')
+            train_set = train_set.drop('Diurnal', axis='columns')
         elif 'residuals' in self.preprocesses: 
             # using sarima forecast as element summed to residuals
             train_set_resid = train_set['Residual']
@@ -107,14 +112,16 @@ class NNModel(ModelStrategy):
             test_set_resid = test_set['Residual']
             test_set_predictions = test_set['Residual_forecast']
             test_set['Consumption'] -= test_set['Residual'].values
-            print(test_set_resid)
+            test_set = test_set.drop(['Residual', 'Residual_forecast'], axis='columns')
+            train_set = train_set.drop(['Residual', 'Residual_forecast'], axis='columns')
         
         if self.univariate:
             train_set = train_set[['Date', 'Consumption']]
             test_set = test_set[['Date', 'Consumption']]
 
-        train_set.loc[:, train_set.columns != 'Date'] = self.standard_scaler.transform(train_set.loc[:, train_set.columns != 'Date'])
-        test_set.loc[:, test_set.columns != 'Date'] = self.standard_scaler.transform(test_set.loc[:, test_set.columns != 'Date'])
+        transform_cols = [col for col in test_set.columns if col not in ['Date', 'HOLIDAY', 'WEEKEND', 'HOUR', 'DAY']]
+        train_set.loc[:, self.transform_cols] = self.standard_scaler.transform(train_set.loc[:, self.transform_cols])
+        test_set.loc[:, self.transform_cols] = self.standard_scaler.transform(test_set.loc[:, self.transform_cols])
 
         # Create windowed versions of the training and test sets
         consumption_idx = train_set.drop('Date', axis=1).columns.get_loc('Consumption')   # Index of consumption feature
@@ -134,8 +141,8 @@ class NNModel(ModelStrategy):
         test_forecast_df = self.forecast(test_forecast_dates.shape[0], recent_data=forecast_data, test_set=test_set)
 
         # Rescale data
-        train_set.loc[:, train_set.columns != 'Date'] = self.standard_scaler.inverse_transform(train_set.loc[:, train_set.columns != 'Date'])
-        test_set.loc[:, test_set.columns != 'Date'] = self.standard_scaler.inverse_transform(test_set.loc[:, test_set.columns != 'Date'])
+        train_set.loc[:, self.transform_cols] = self.standard_scaler.inverse_transform(train_set.loc[:, self.transform_cols])
+        test_set.loc[:, self.transform_cols] = self.standard_scaler.inverse_transform(test_set.loc[:, self.transform_cols])
         
         # add future values of other features
         train_preds_df = train_set[-len(train_preds):].copy()
@@ -144,8 +151,8 @@ class NNModel(ModelStrategy):
         test_preds_df['Consumption'] = test_preds
 
         # rescale
-        train_preds = self.standard_scaler.inverse_transform(train_preds_df.loc[:, train_preds_df.columns != 'Date'])
-        test_preds = self.standard_scaler.inverse_transform(test_preds_df.loc[:, test_preds_df.columns != 'Date'])
+        train_preds = self.standard_scaler.inverse_transform(train_preds_df.loc[:, self.transform_cols])
+        test_preds = self.standard_scaler.inverse_transform(test_preds_df.loc[:, self.transform_cols])
 
         # Remove virtual points
         if 'virtual' in self.preprocesses:
@@ -214,7 +221,7 @@ class NNModel(ModelStrategy):
         preds_df = test_set.copy()
         preds_df['Consumption'] = preds
 
-        preds = self.standard_scaler.inverse_transform(preds_df.loc[:, preds_df.columns != 'Date'])
+        preds = self.standard_scaler.inverse_transform(preds_df.loc[:, self.transform_cols])
         forecast_dates = pd.date_range(self.forecast_start, periods=days, freq='h').tolist()
         forecast_df = pd.DataFrame({'Date': forecast_dates, 'Consumption': preds[:,0].tolist()})
         if 'virtual' in self.preprocesses:
@@ -377,7 +384,7 @@ class NNModel(ModelStrategy):
         return df
     
 
-    def fragment(self, dataset, n_steps_out=1, n_steps_present=16, n_steps_recent=16, n_steps_distant=16):
+    def fragment(self, dataset, n_steps_out=1, n_steps_present=15, n_steps_recent=15, n_steps_distant=15):
         '''
         Introduce virtual datapoints to reduce non-linearity. 
         :param dataset: Pandas DataFrame indexed by date
@@ -473,7 +480,7 @@ class ANNModel(NNModel):
     def __init__(self, hparams, log_dir=None):
         name = 'ANN'
         self.dropout = hparams.get('DROPOUT', 0.25)
-        self.preprocesses = hparams.get('PREPROCESS', ['fragments'])
+        self.preprocesses = hparams.get('PREPROCESS', ['fragments', 'residuals'])
         self.fc0_units = int(hparams.get('FC0_UNITS', 32))
         self.fc1_units = int(hparams.get('FC1_UNITS', 32))
         self.fc2_units = int(hparams.get('FC2_UNITS', 32))
@@ -508,7 +515,8 @@ class LSTMModel(NNModel):
 
     def __init__(self, hparams, log_dir=None):
         name = 'LSTM'
-        self.units = int(hparams.get('UNITS', 128))
+        self.units0 = int(hparams.get('UNITS_0', 8))
+        self.units1 = int(hparams.get('UNITS_1', 8))
         self.preprocesses = hparams.get('PREPROCESS', ['fragments'])
         self.dropout = hparams.get('DROPOUT', 0.25)
         self.fc0_units = int(hparams.get('FC0_UNITS', 32))
@@ -519,9 +527,9 @@ class LSTMModel(NNModel):
 
     def define_model(self, input_dim):
         X_input = Input(shape=input_dim)
-        X = LSTM(self.units, activation='tanh', return_sequences=True, name='lstm')(X_input)
-        X = LSTM(self.units, activation='tanh', name='lstm_1')(X)
-        X = Flatten()(X)
+        X = LSTM(self.units0, activation='tanh', return_sequences=True, name='lstm')(X_input)
+        X = LSTM(self.units1, activation='tanh', name='lstm_1')(X)
+        #X = Flatten()(X)
         if self.fc0_units is not None:
             #X = LSTM(self.units, activation='tanh', return_sequences=True, name='lstm')
             X = Dense(self.fc0_units, activation='relu', name='fc0')(X)
@@ -547,26 +555,25 @@ class GRUModel(NNModel):
 
     def __init__(self, hparams, log_dir=None):
         name = 'GRU'
-        self.units = int(hparams.get('UNITS', 128))
-        self.preprocesses = hparams.get('PREPROCESS', ['fragments'])
+        self.units0 = int(hparams.get('UNITS_0', 8))
+        self.units1 = int(hparams.get('UNITS_1', 8))
+        self.preprocesses = hparams.get('PREPROCESS', ['fragments', 'residuals'])
         self.dropout = hparams.get('DROPOUT', 0.25)
-        self.fc0_units = int(hparams.get('FC0_UNITS', [32]))
-        self.fc1_units = int(hparams.get('FC1_UNITS', None))
         self.lr = hparams.get('LR', 1e-3)
         self.loss = hparams.get('LOSS', 'mse') if hparams.get('LOSS', 'mse') in ['mae', 'mse', 'rmse'] else 'mse'
         super(GRUModel, self).__init__(hparams, name, log_dir)
 
     def define_model(self, input_dim):
         X_input = Input(shape=input_dim)
-        X = GRU(self.units, activation='tanh', return_sequences=True, name='gru')(X_input)
-        X = GRU(self.units, activation='tanh', name='gru_1')(X)
-        #X = Flatten()(X)
-        if self.fc0_units is not None:
-            X = Dropout(self.dropout)(X)
-            X = Dense(self.fc0_units, activation='relu', name='fc0')(X)
-            if self.fc1_units is not None:
-                X = Dropout(self.dropout)(X)
-                X = Dense(self.fc1_units, activation='relu', name='fc1')(X)
+        X = GRU(
+            self.units0, 
+            activation='relu', 
+            return_sequences=True, 
+            name='gru', 
+            kernel_regularizer=regularizers.L2(),
+            recurrent_regularizer=regularizers.L2()
+            )(X_input)
+        X = GRU(self.units1, activation='relu', name='gru_1')(X)
         Y = Dense(1, activation='linear', name='output')(X)
         model = Model(inputs=X_input, outputs=Y, name=self.name)
         optimizer = Adam(learning_rate=self.lr)
@@ -592,6 +599,7 @@ class CNN1DModel(NNModel):
         self.dropout = hparams.get('DROPOUT', 0.25)
         self.lr = hparams.get('LR', 1e-3)
         self.loss = hparams.get('LOSS', 'mse') if hparams.get('LOSS', 'mse') in ['mae', 'mse', 'rmse'] else 'mse'
+        self.preprocesses = hparams.get('PREPROCESS', ['fragments', 'residuals'])
         super(CNN1DModel, self).__init__(hparams, name, log_dir)
 
     def define_model(self, input_dim):
@@ -599,17 +607,22 @@ class CNN1DModel(NNModel):
         X = X_input
         for i in range(self.n_conv_layers):
             try:
-                X = Conv1D(self.init_filters * self.filter_multiplier**i, self.kernel_size, strides=self.stride,
-                           activation='relu', name='conv' + str(i))(X)
+                X = Conv1D(
+                            self.init_filters * self.filter_multiplier**i, 
+
+                            self.kernel_size, 
+                            strides=self.stride,
+                            activation='relu', 
+                            name='conv' + str(i),
+                            kernel_regularizer=regularizers.L2(),
+                           )(X)
             except Exception as e:
                 print("Model cannot be defined with above hyperparameters", e)
+        X = MaxPooling1D(pool_size=2)(X)
         X = Flatten()(X)
         if self.fc0_units is not None:
             X = Dropout(self.dropout)(X)
             X = Dense(self.fc0_units, activation='relu', name='fc0')(X)
-            if self.fc1_units is not None:
-                X = Dropout(self.dropout)(X)
-                X = Dense(self.fc1_units, activation='relu', name='fc1')(X)
         Y = Dense(input_dim[1], activation='linear', name='output')(X)
         model = Model(inputs=X_input, outputs=Y, name=self.name)
         optimizer = Adam(learning_rate=self.lr)
