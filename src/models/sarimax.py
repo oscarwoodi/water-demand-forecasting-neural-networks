@@ -50,6 +50,7 @@ class SARIMAXModel(ModelStrategy):
             series = dataset.set_index('ds').copy()
 
         print(series)
+        print(exog_series)
         if self.auto_params:
             if self.univariate: 
                 best_model = pmdarima.auto_arima(series, seasonal=True, stationary=False, m=self.m, information_criterion='aic',

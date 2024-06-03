@@ -25,7 +25,7 @@ class NNModel(ModelStrategy):
     __metaclass__ = ABCMeta
 
     def __init__(self, hparams, name, log_dir):
-        self.univariate = hparams.get('UNIVARIATE', True)
+        self.univariate = hparams.get('UNIVARIATE', False)
         self.batch_size = int(hparams.get('BATCH_SIZE', 32))
         self.epochs = int(hparams.get('EPOCHS',120))
         self.patience = int(hparams.get('PATIENCE', 15))
@@ -163,7 +163,7 @@ class NNModel(ModelStrategy):
 
             test_forecast_dates = self.virtual_points(test_forecast_dates, self.n, inverse=True)
             train_dates = self.virtual_points(train_dates, self.n, inverse=True)
-
+            
         if 'diurnal' in self.preprocesses: 
             train_set['Consumption'] += train_set_diurnal
             test_set['Consumption'] += test_set_diurnal
@@ -599,7 +599,7 @@ class CNN1DModel(NNModel):
         self.dropout = hparams.get('DROPOUT', 0.25)
         self.lr = hparams.get('LR', 1e-3)
         self.loss = hparams.get('LOSS', 'mse') if hparams.get('LOSS', 'mse') in ['mae', 'mse', 'rmse'] else 'mse'
-        self.preprocesses = hparams.get('PREPROCESS', ['fragments', 'residuals'])
+        self.preprocesses = hparams.get('PREPROCESS', ['fragments', 'diurnal'])
         super(CNN1DModel, self).__init__(hparams, name, log_dir)
 
     def define_model(self, input_dim):
@@ -623,7 +623,7 @@ class CNN1DModel(NNModel):
         if self.fc0_units is not None:
             X = Dropout(self.dropout)(X)
             X = Dense(self.fc0_units, activation='relu', name='fc0')(X)
-        Y = Dense(input_dim[1], activation='linear', name='output')(X)
+        Y = Dense(1, activation='linear', name='output')(X)
         model = Model(inputs=X_input, outputs=Y, name=self.name)
         optimizer = Adam(learning_rate=self.lr)
         model.compile(loss=self.loss, optimizer=optimizer, metrics=self.metrics)

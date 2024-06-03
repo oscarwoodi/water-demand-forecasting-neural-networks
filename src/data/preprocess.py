@@ -26,6 +26,7 @@ def load_raw_data(cfg, save_raw_df=True, rate_class='all'):
     weather_feats = cfg['DATA']['WEATHER_FEATS']
     frequency = cfg['DATA']['FREQUENCY']
 
+    # demand data
     raw_data_filenames = glob.glob(cfg['PATHS']['RAW_DATA_DIR'] + "/*.csv")
     print('Loading raw data from spreadsheets.')
     raw_df = pd.DataFrame()
@@ -42,12 +43,26 @@ def load_raw_data(cfg, save_raw_df=True, rate_class='all'):
     print('Consumption total: ', len(raw_df))
     print(f"Original data shape: {raw_df.shape}")
 
+    # exogenous variable data
+    raw_exog_filenames = glob.glob(cfg['PATHS']['RAW_EXOG_DIR'] + "/*.csv")
+    print('Loading exogenous data from spreadsheets.')
+    exog_df = pd.DataFrame()
+    for filename in tqdm(raw_exog_filenames):
+        df = pd.read_csv(filename, low_memory=False, index_col=False)    # Load a water demand CSV
+        df = df.set_index('Date')
+        df.index.name = 'Date'
+        df.index = pd.to_datetime(df.index, format="%d/%m/%Y %H:%M")
+        exog_df = pd.concat([exog_df, df], axis=0, ignore_index=False)     # Concatenate next batch of data
+        shape1 = raw_df.shape
+        exog_df = exog_df[~exog_df.index.duplicated(keep='first')]   # Drop duplicate entries appearing in different data slices
+
     if save_raw_df:
         raw_df.to_csv(cfg['PATHS']['RAW_DATASET'], header=True, index_label='Date', index=True)
-    return raw_df
+        exog_df.to_csv(cfg['PATHS']['RAW_EXOG_DATASET'], header=True, index_label='Date', index=True)
+    return raw_df, exog_df
 
 
-def impute_ts(dataset, corr_thresh=0.7):
+def impute_ts(dataset, corr_thresh=0.7, method='hybrid'):
     """
     Imputes data using kNN alogrithm for correlated dmas
     :param df: dataframe to impute
@@ -55,72 +70,99 @@ def impute_ts(dataset, corr_thresh=0.7):
     :corr_thresh: a float corresponding to threshold for correlation to be considered a partner dma
     """
     print('Applying imputation...')
-    # Find comparison partners
-    correlation = dataset.corr()
-    correlation = correlation[correlation!=1]
-    partners = {
-        dma: list(correlation[(correlation[dma]>=corr_thresh)].index) 
-        for dma in correlation.columns
-    }
 
-    # scale
-    scaler = {}
-    imputer = IterativeImputer(
-        estimator=RandomForestRegressor(      
-            n_estimators=10,
-            max_depth=10,
-            bootstrap=True,
-            max_samples=0.5,
-            n_jobs=2,
-            random_state=0
-        ),
-        max_iter=20, 
-        tol=0.005
-    )
+    if method == 'hybrid': 
+        # Find comparison partners
+        correlation = dataset.corr()
+        correlation = correlation[correlation!=1]
+        partners = {
+            dma: list(correlation[(correlation[dma]>=corr_thresh)].index) 
+            for dma in correlation.columns
+        }
 
-    # pre allocate
-    scaled_df = pd.DataFrame(columns=dataset.columns, index=dataset.index)
-    imputed_df = pd.DataFrame(columns=dataset.columns, index=dataset.index)
+        # scale
+        scaler = {}
+        imputer = IterativeImputer(
+            estimator=RandomForestRegressor(      
+                n_estimators=10,
+                max_depth=10,
+                bootstrap=True,
+                max_samples=0.5,
+                n_jobs=2,
+                random_state=0
+            ),
+            max_iter=20, 
+            tol=0.005
+        )
 
-    # apply scaling
-    for dma in dataset.columns: 
-        values = dataset[dma].values
-        values = values.reshape((len(values), 1))
-        # train the standardization
-        scaler[dma] = StandardScaler()
-        scaler[dma] = scaler[dma].fit(values)
-        standardized = scaler[dma].transform(values)
-        scaled_df[dma] = standardized.flatten()
+        # pre allocate
+        scaled_df = pd.DataFrame(columns=dataset.columns, index=dataset.index)
+        imputed_df = pd.DataFrame(columns=dataset.columns, index=dataset.index)
+
+        # apply scaling
+        for dma in dataset.columns: 
+            values = dataset[dma].values
+            values = values.reshape((len(values), 1))
+            # train the standardization
+            scaler[dma] = StandardScaler()
+            scaler[dma] = scaler[dma].fit(values)
+            standardized = scaler[dma].transform(values)
+            scaled_df[dma] = standardized.flatten()
+            
+        # impute
+        for dma in dataset.columns:
+            print(f"Applying imputation for {dma}...")
+            # apply missForest imputation
+            cols = partners[dma]+[dma]  # correlated partner set
+            fit = imputer.fit_transform(scaled_df[cols])
+            imputed_df[dma] = pd.DataFrame(fit, columns=cols, index=dataset.index)[dma]
+
+            # inverse scaling
+            values = imputed_df[dma].values
+            values = values.reshape((len(values), 1))
+            standardized = scaler[dma].inverse_transform(values)
+            imputed_df[dma] = standardized.flatten()
+
+            # apply seasonal decomp
+            stl = MSTL(imputed_df[dma].values.reshape(-1), periods=(24, 24*7))
+            res = stl.fit()
+
+            # Extract the seasonal and trend components
+            seasonal_component = res.seasonal.sum(axis=1) + res.trend
+            # Create the deseasonalised series with original dataset
+            df_deseasonalised = dataset[dma] - seasonal_component
+
+            # Interpolate missing values in the deseasonalised series
+            df_deseasonalised_imputed = df_deseasonalised.interpolate(method="linear", limit=50)
+            df_deseasonalised_imputed = df_deseasonalised.fillna(0)
+
+            # Add the seasonal component back to create the final imputed series
+            imputed_df[dma] = df_deseasonalised_imputed + seasonal_component
         
-    # impute
-    for dma in dataset.columns:
-        print(f"Applying imputation for {dma}...")
-        # apply missForest imputation
-        cols = partners[dma]+[dma]  # correlated partner set
-        fit = imputer.fit_transform(scaled_df[cols])
-        imputed_df[dma] = pd.DataFrame(fit, columns=cols, index=dataset.index)[dma]
+    elif method == 'mean': 
+        imputed_df = dataset.copy()
+        # exponential mean component
+        for dma in dataset.columns:
+            avg_df = dataset[[dma]].copy()
+            missing_dma_indices = avg_df[avg_df.isna().all(axis=1)].index
 
-        # inverse scaling
-        values = imputed_df[dma].values
-        values = values.reshape((len(values), 1))
-        standardized = scaler[dma].inverse_transform(values)
-        imputed_df[dma] = standardized.flatten()
-
-        # apply seasonal decomp
-        stl = MSTL(imputed_df[dma].values.reshape(-1), periods=(24, 24*7))
-        res = stl.fit()
-
-        # Extract the seasonal and trend components
-        seasonal_component = res.seasonal.sum(axis=1) + res.trend
-        # Create the deseasonalised series with original dataset
-        df_deseasonalised = dataset[dma] - seasonal_component
-
-        # Interpolate missing values in the deseasonalised series
-        df_deseasonalised_imputed = df_deseasonalised.interpolate(method="linear")
-        df_deseasonalised_imputed = df_deseasonalised.fillna(0)
-
-        # Add the seasonal component back to create the final imputed series
-        imputed_df[dma] = df_deseasonalised_imputed + seasonal_component
+            avg_df['mean'] = 0
+            
+            # fill with nan mean for insufficient data for exponential
+            avg_df['day'] = avg_df.index.weekday
+            avg_df['hour'] = avg_df.index.hour
+            
+            avg_values = avg_df.groupby(by=['day', 'hour']).mean()[dma]
+                
+            for idx, row in avg_df.iterrows(): 
+                avg_df.loc[idx, 'mean'] = avg_values.loc[row.day, row.hour]
+                
+            # residual correction component
+            #avg_df['residual'] = avg_df[dma] - avg_df['mean']
+            #avg_df['res_correction'] = avg_df['residual'].rolling(window=48).mean()
+            #avg_df['mean'] = avg_df['mean'] + avg_df['res_correction'].fillna(0)
+            
+            imputed_df.loc[missing_dma_indices, dma] = avg_df.loc[missing_dma_indices, 'mean']
 
     return imputed_df
 
@@ -241,7 +283,7 @@ def diurnal_flow(cfg, dataset, stat='mean'):
     return avg_df
 
 
-def time_features(cfg, dataset):
+def load_exog(cfg, dataset, exog):
     '''
     Add time features to dataframe
     :param cfg: project config
@@ -249,13 +291,16 @@ def time_features(cfg, dataset):
     '''
 
     time_feats = cfg['DATA']['TIME_FEATS']
+    weather_feats = cfg['DATA']['WEATHER_FEATS']
 
     # fill with nan mean for insufficient data for exponential
     if 'WEEKDAY' in time_feats: 
         dataset['WEEKDAY'] = dataset.index.weekday
+        dataset['WEEKDAY'] = dataset['WEEKDAY'] / 6
 
     if 'HOUR' in time_feats: 
         dataset['HOUR'] = dataset.index.hour
+        dataset['HOUR'] = dataset['HOUR'] / 23
 
     if 'HOLIDAY' in time_feats: 
         # make list of special days for the DMAs region
@@ -277,6 +322,9 @@ def time_features(cfg, dataset):
         for i in dataset.index:
             if i.weekday() == 5 or i.weekday() == 6:
                 dataset.loc[i, 'WEEKEND'] = 1
+
+    for feat in weather_feats: 
+        dataset[feat] = exog[feat]
 
     return dataset
 
@@ -304,7 +352,7 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
     preprocesses = cfg['DATA']['PREPROCESS']
 
     # remove unwanted data
-    raw_df = load_raw_data(cfg, rate_class=rate_class, save_raw_df=save_raw_df)
+    raw_df, exog_df = load_raw_data(cfg, rate_class=rate_class, save_raw_df=save_raw_df)
     dmas = raw_df.columns
 
     if cfg['DATA']['END_TRIM'] > 0: 
@@ -316,6 +364,7 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
     # impute dataset with seasonal decomposition and missForest
     if 'IMPUTE' in preprocesses: 
         preprocessed_df = impute_ts(preprocessed_df)
+        exog_df = impute_ts(exog_df)
     
     # remove anomolies with isolation forest
     if 'ANOMOLY_REMOVAL' in preprocesses: 
@@ -325,8 +374,10 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
         diurnal_df = diurnal_flow(cfg, preprocessed_df)
         preprocessed_df = pd.concat([preprocessed_df, diurnal_df], axis=1)
 
-    if time_feats != None: 
-        preprocessed_df = time_features(cfg, preprocessed_df)
+    if (time_feats != None) or (weather_feats != None): 
+        preprocessed_df = load_exog(cfg, preprocessed_df, exog_df)
+    
+    print(preprocessed_df)
 
     if 'DWT' in preprocesses: 
         dwt_df = dwt_transform(preprocessed_df, dmas, levels=cfg['DATA']['DWT_DECOMPOSITIONS'])

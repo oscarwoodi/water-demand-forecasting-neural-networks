@@ -2,7 +2,8 @@
 PATHS:
   RAW_DATA_DIR: 'data/raw/quarterly/'
   RAW_DATASET: 'data/raw/intermediate/raw_data.csv'
-  RAW_EXOG_DATASET: 'data/raw/intermediate/all/raw_exog_data.csv'
+  RAW_EXOG_DIR: 'data/raw_exog/quarterly/'
+  RAW_EXOG_DATASET: 'data/raw_exog/intermediate/raw_exog_data.csv'
   FULL_RAW_DATASET: 'data/raw/full_raw_data.csv'
   PREPROCESSED_DATA: 'data/preprocessed/all/preprocessed.csv'
   PREPROCESSED_DWT_DATA: 'data/preprocessed/dwt/preprocessed.csv'
@@ -47,25 +48,25 @@ DATA:
   PREPROCESS: ['IMPUTE', 'ANOMOLY_REMOVAL']  # One of ['IMPUTE', 'CEEMDAN', 'DWT', 'ANOMOLY_REMOVAL']
   CEEMDAN_DECOMPOSITIONS: 5 # None
   DWT_DECOMPOSITIONS: 1 # None
-  WEATHER_FEATS: []  # One of ['AIR_TEMP', 'AIR_HUMIDITY', WIND_SPEED', RAIN_DEPTH']
-  TIME_FEATS: []  # One of ['WEEKEND', 'HOUR', 'HOLIDAY', 'WEEKDAY']
-  SPECIFIC_FEATS: ['RESIDUALS']  # One of ['DIURNAL', 'K_MEANS', 'RESIDUALS']
+  WEATHER_FEATS: ['AIR_TEMP', 'AIR_HUMIDITY']  # One of ['AIR_TEMP', 'AIR_HUMIDITY', WIND_SPEED', RAIN_DEPTH']
+  TIME_FEATS: []   # One of ['WEEKEND', 'HOLIDAY', 'WEEKDAY', 'HOUR']
+  SPECIFIC_FEATS: ['DIURNAL']  # One of ['DIURNAL', 'K_MEANS', 'RESIDUALS']
   TEST_FRAC: 0.25
   TEST_DAYS: 168
-  TRAIN_DAYS: 2688
+  TRAIN_DAYS: 1344
   START_TRIM: 2000
   END_TRIM: 168
-  DMAS: ['dma_a', 'dma_b', 'dma_g', 'dma_i']
+  DMAS: ['dma_b']
   MISSING_RANGES: []
   SAVE_LABEL: TEST
 
 # Training experiments
 TRAIN:
-  MODEL: '1dcnn'                      # One of ['prophet', 'lstm', 'gru', '1dcnn', 'arima', 'sarimax', 'random_forest', 'linear_regression']
-  DECOMPOSITION: ['RESIDUALS']                 # One of ['CEEMDAN', 'DWT', 'RESIDUALS', 'DIURNAL'] 
-  EXPERIMENT: 'cross_validation'        # One of ['train_single', 'train_all', 'hparam_search', 'cross_validation', 'multi_cross_validation']
-  VALIDATIONS: 5
-  N_QUANTILES: 118
+  MODEL: 'gru'                      # One of ['ann', 'prophet', 'lstm', 'gru', '1dcnn', 'arima', 'sarimax', 'random_forest', 'linear_regression']
+  DECOMPOSITION: ['DIURNAL'] 
+  EXPERIMENT: 'multi_cross_validation'        # One of ['train_single', 'train_all', 'hparam_search', 'cross_validation', 'multi_cross_validation']
+  VALIDATIONS: 1
+  N_QUANTILES: 62
   N_FOLDS: 7
   HPARAM_SEARCH:
     N_EVALS: 40
@@ -107,18 +108,18 @@ HPARAMS:
     PREPROCESS: ['diurnal']
   ANN: 
     UNIVARIATE: true
-    T_X: 256
-    BATCH_SIZE: 24
+    T_X: 190
+    BATCH_SIZE: 16
     EPOCHS: 120
     PATIENCE: 11
     VAL_FRAC: 0.15
-    LR: 0.001
+    LR: 0.0005
     LOSS: 'mse'
     DROPOUT: 0.25
     FC0_UNITS: 160
-    FC1_UNITS: 96
-    FC2_UNITS: 64
-    PREPROCESS: ['windowed', 'diurnal']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
+    FC1_UNITS: 160
+    FC2_UNITS: 96
+    PREPROCESS: ['fragments', 'diurnal']   # List from [('fragments' or 'windowed'), 'virtual', 'cluster', 'pca']
   LSTM:
     UNIVARIATE: true
     T_X: 168
@@ -148,7 +149,7 @@ HPARAMS:
     DROPOUT: 0.4
     FC0_UNITS: 0
     FC1_UNITS: 0
-    PREPROCESS: ['fragments', 'residuals']
+    PREPROCESS: ['fragments', 'diurnal']
   1DCNN:
     UNIVARIATE: true
     T_X: 180
@@ -156,7 +157,7 @@ HPARAMS:
     EPOCHS: 150
     PATIENCE: 15
     VAL_FRAC: 0.2
-    LR: 0.0003
+    LR: 0.001
     LOSS: 'mse'
     FILTERS: 16
     KERNEL_SIZE: 3
@@ -165,7 +166,7 @@ HPARAMS:
     FC0_UNITS: 64
     FC1_UNITS: 32
     DROPOUT: 0.0
-    PREPROCESS: ['fragments', 'residuals']
+    PREPROCESS: ['fragments', 'diurnal']
   LINEAR_REGRESSION:
     UNIVARIATE: true
     T_X: 300
@@ -288,7 +289,7 @@ HPARAM_SEARCH:
       RANGE: [0.00001, 0.001]
     LOSS:
       TYPE: 'set'
-      RANGE: ['mse', 'mae', 'huber_loss']
+      RANGE: ['mse']
     FILTERS:
       TYPE: 'set'
       RANGE: [4, 8, 16]
@@ -314,6 +315,7 @@ HPARAM_SEARCH:
     T_X:
       TYPE: 'int_uniform'
       RANGE: [30, 365]
+  
 
 # Data clustering
 K-PROTOTYPES:
