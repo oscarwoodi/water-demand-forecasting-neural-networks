@@ -23,9 +23,7 @@ azure/.ipynb_checkpoints
 !data/raw/.gitkeep
 !data/raw/quarterly/.gitkeep
 !data/raw/intermediate/.gitkeep
-!data/raw/info/
-!data/raw/quarterly/
-!data/raw/intermediate/
+!data/info/*
 !data/raw/info/data_dictionary.xlsx
 !img/.gitkeep
 !img/data_visualizations/.gitkeep
