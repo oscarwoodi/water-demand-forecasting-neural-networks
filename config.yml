@@ -3,7 +3,7 @@ PATHS:
   RAW_DATA_DIR: 'data/raw/'
   RAW_DATASET: 'data/raw/data_raw.csv'
   RAW_EXOG_DIR: 'data/raw_exog/'
-  RAW_EXOG_DATASET: 'data/raw/exog_raw.csv'
+  RAW_EXOG_DATASET: 'data/raw_exog/exog_raw.csv'
   # FULL_RAW_DATASET: 'data/raw/data_raw.csv'
 
   PREPROCESSED_DATA: 'data/preprocessed/preprocessed.csv'
@@ -16,7 +16,7 @@ PATHS:
   FORECAST_VISUALIZATIONS: 'img/forecast_visualizations/'
   EXPERIMENT_VISUALIZATIONS: 'img/experiment_visualizations/'
   INTERPRETABILITY_VISUALIZATIONS: 'img/interpretability_visualizations/'
-  LOGS: 'results/logs/'
+  LOG_DIR: 'results/logs/'
   EXPERIMENTS: 'results/experiments/'
 
   # TRAIN_SET: 'data/preprocessed/Train_Set.csv'

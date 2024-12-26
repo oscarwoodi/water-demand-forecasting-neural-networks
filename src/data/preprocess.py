@@ -15,11 +15,15 @@ from PyEMD import CEEMDAN
 import logging
 import os
 
-# Create log directory if it doesn't exist
-log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../results/logs'))
+
+# Load project configuration
+cfg = yaml.full_load(open("./config.yml", 'r'))       # Load project config data
+# set up logging
+# create log directory if it doesn't exist
+log_dir = os.path.abspath(cfg['PATHS']['LOG_DIR']+'data_prep/.')
 os.makedirs(log_dir, exist_ok=True)
 
-# Configure logging
+# configure logging
 log_filename = os.path.join(log_dir, f'log_{datetime.now().strftime("%Y-%m-%d")}.log')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[
     logging.FileHandler(log_filename),
@@ -48,7 +52,7 @@ def load_raw_data(cfg, save_raw_df=True, rate_class='all'):
         df = df.set_index('Date')
         df.index.name = 'Date'
         # allow python to interpret dates
-        df.index = pd.to_datetime(df.index, infer_datetime_format=True)
+        df.index = pd.to_datetime(df.index, format="%Y-%m-%d %H:%M:%S")
         raw_df = pd.concat([raw_df, df], axis=0, ignore_index=False)     # Concatenate next batch of data
         shape1 = raw_df.shape
         raw_df = raw_df[~raw_df.index.duplicated(keep='first')]   # Drop duplicate entries appearing in different data slices
@@ -66,7 +70,7 @@ def load_raw_data(cfg, save_raw_df=True, rate_class='all'):
         df = df.set_index('Date')
         df.index.name = 'Date'
         # correct this if date format is wrong
-        df.index = pd.to_datetime(df.index, format="%d/%m/%Y %H:%M") 
+        df.index = pd.to_datetime(df.index, format="%Y-%m-%d %H:%M:%S") 
         exog_df = pd.concat([exog_df, df], axis=0, ignore_index=False)     # Concatenate next batch of data
         shape1 = raw_df.shape
         exog_df = exog_df[~exog_df.index.duplicated(keep='first')]   # Drop duplicate entries appearing in different data slices
@@ -387,8 +391,6 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
     """
     run_start = datetime.today()
     tqdm.pandas()
-    if cfg is None:
-        cfg = yaml.full_load(open("./config.yml", 'r'))       # Load project config data
 
     weather_feats = cfg['DATA']['WEATHER_FEATS']
     time_feats = cfg['DATA']['TIME_FEATS']
@@ -453,4 +455,4 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
 
 if __name__ == '__main__':
     logger.info('Running preprocess_ts from directory: %s', os.getcwd())
-    df = preprocess_ts(rate_class='ins', save_raw_df=True, save_prepr_df=True, save_split_prepr_df=True)
+    df = preprocess_ts(cfg=cfg, rate_class='ins', save_raw_df=True, save_prepr_df=True, save_split_prepr_df=True)
