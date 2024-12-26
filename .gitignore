@@ -14,6 +14,7 @@ results/logs/hparam_search/*
 results/models/*
 results/predictions/*
 results/interpretability/*
+notebooks/data/*
 azure/ws_config.json
 azure/.ipynb_checkpoints
 /.amlignore
