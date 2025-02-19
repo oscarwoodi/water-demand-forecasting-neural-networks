@@ -401,7 +401,7 @@ def preprocess_ts(cfg=None, save_raw_df=True, save_prepr_df=True, rate_class='al
 
     # remove unwanted data
     raw_df, exog_df = load_raw_data(cfg, rate_class=rate_class, save_raw_df=save_raw_df)
-    dmas = raw_df.columns
+    dmas = cfg['DATA']['DMAS']  # list of DMAs to preprocess
 
     if cfg['DATA']['END_TRIM'] > 0: 
         preprocessed_df = raw_df[cfg['DATA']['START_TRIM']:-cfg['DATA']['END_TRIM']]
