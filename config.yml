@@ -57,7 +57,7 @@ DATA:
   TRAIN_DAYS: 1344
   START_TRIM: 2000
   END_TRIM: 168
-  DMAS: ['dma_b']
+  DMAS: ['dma_a', 'dma_b', 'dma_c', 'dma_d', 'dma_e', 'dma_f', 'dma_g', 'dma_h', 'dma_i', 'dma_j']
   MISSING_RANGES: []
   SAVE_LABEL: TEST
 
